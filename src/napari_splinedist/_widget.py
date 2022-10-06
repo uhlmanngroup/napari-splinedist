@@ -9,6 +9,7 @@ Replace code below according to your needs.
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy
 from napari_splineit.interpolation import (
     interpolator_factory as splineit_interpolator_factory,
 )
@@ -16,9 +17,11 @@ from napari_splineit.layer.layer_factory import (
     layer_factory as splineit_layer_factory,
 )
 from napari_splineit.widgets.double_spin_slider import DoubleSpinSlider
+from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -40,10 +43,38 @@ if TYPE_CHECKING:
     pass
 
 
+def set_background_color_rgba(obj, qcolor):
+    r = qcolor.red()
+    g = qcolor.red()
+    b = qcolor.red()
+    a = qcolor.alpha()
+    obj.setStyleSheet(f"background-color:rgba({r},{g},{b},{a})")
+
+
+def qcolor_as_array(qcolor):
+    return (
+        numpy.array(
+            [qcolor.red(), qcolor.green(), qcolor.blue(), qcolor.alpha()]
+        )
+        / 255.0
+    )
+
+
 def shorten_path(file_path, length):
     """Split the path into separate parts, select the last
     'length' elements and join them again"""
     return str(Path(*Path(file_path).parts[-length:]))
+
+
+def bar():
+    f = QFrame()
+    f.setStyleSheet("background-color: #c0c0c0;")
+    f.setFrameShape(QFrame.HLine)
+    f.setFixedHeight(1)
+    f.setFrameShadow(QFrame.Sunken)
+    f.setLineWidth(1)
+    f.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    return f
 
 
 class SplineDistWidget(QWidget):
@@ -53,6 +84,8 @@ class SplineDistWidget(QWidget):
         self.viewer = napari_viewer
 
         self._model_path = None
+        self._edge_color = QColor(255, 0, 0, 255)
+        self._face_color = QColor(255, 255, 255, 10)
 
         self._init_ui()
         self._connect_events()
@@ -70,30 +103,21 @@ class SplineDistWidget(QWidget):
         box.addLayout(grid)
         box.addStretch(1)
 
-        def add_labled_widget(text, widget, row):
-            grid.addWidget(QLabel(text), row, 0)
-            grid.addWidget(widget, row, 1)
-            return widget
-
         row = 0
 
-        def bar():
-            f = QFrame()
-            f.setStyleSheet("background-color: #c0c0c0;")
-            f.setFrameShape(QFrame.HLine)
-            f.setFixedHeight(1)
-            f.setFrameShadow(QFrame.Sunken)
-            f.setLineWidth(1)
-            f.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            return f
+        def add(text, widget):
+            nonlocal row
+            grid.addWidget(QLabel(text), row, 0)
+            grid.addWidget(widget, row, 1)
+            row += 1
+            return widget
 
         grid.addWidget(bar(), row, 0, 1, 2)
         row += 1
 
-        self._input_image_combo_box = add_labled_widget(
-            "InputImage", ImageLayerComboBox(self.viewer), row
+        self._input_image_combo_box = add(
+            "InputImage", ImageLayerComboBox(self.viewer)
         )
-        row += 1
 
         grid.addWidget(QLabel("Neural Networl Predictions"), row, 0)
         row += 1
@@ -101,70 +125,49 @@ class SplineDistWidget(QWidget):
         grid.addWidget(bar(), row, 0, 1, 2)
         row += 1
 
-        self._use_shipped_cb = add_labled_widget(
-            "Use Shipped Model", QCheckBox(), row
-        )
-        row += 1
+        self._use_shipped_cb = add("Use Shipped Model", QCheckBox())
 
-        self._shipped_combo_box = add_labled_widget(
-            "ShippedModel", QComboBox(), row
-        )
+        self._shipped_combo_box = add("ShippedModel", QComboBox())
         self._shipped_combo_box.addItem("bbbc038_M8")
-        row += 1
 
         grid.addWidget(bar(), row, 0, 1, 2)
         row += 1
 
-        self._use_loaded_cb = add_labled_widget(
-            "Use Loaded Model", QCheckBox(), row
-        )
-        row += 1
+        self._use_loaded_cb = add("Use Loaded Model", QCheckBox())
 
-        self.select_model_button = add_labled_widget(
-            "Model Path", QPushButton("Select model"), row
+        self.select_model_button = add(
+            "Model Path", QPushButton("Select model")
         )
-        self.select_model_button.clicked.connect(
-            self._on_selected_model_folder
-        )
+
         self.select_model_button.setEnabled(False)
-        row += 1
-        self._model_path_label = add_labled_widget(
-            "Selected Model", QLabel("None"), row
-        )
-        row += 1
+        self._model_path_label = add("Selected Model", QLabel("None"))
 
-        group = QButtonGroup(self)
-        group.addButton(self._use_shipped_cb)
-        group.addButton(self._use_loaded_cb)
+        self.group = QButtonGroup(self)
+        self.group.addButton(self._use_shipped_cb)
+        self.group.addButton(self._use_loaded_cb)
         self._use_shipped_cb.setChecked(True)
 
-        def on_click(btn):
-            if self._use_shipped_cb.isChecked():
-                self.select_model_button.setEnabled(False)
-                self._shipped_combo_box.setEnabled(True)
-            else:
-                self.select_model_button.setEnabled(True)
-                self._shipped_combo_box.setEnabled(False)
+        grid.addWidget(bar(), row, 0, 1, 2)
+        row += 1
 
-        group.buttonClicked.connect(on_click)
+        add("Normalize Image", QCheckBox())
+        add("Percentile Low", DoubleSpinSlider([0, 1], 0.1))
+        add("Percentile High", DoubleSpinSlider([0, 1], 0.9))
 
         grid.addWidget(bar(), row, 0, 1, 2)
         row += 1
 
-        add_labled_widget("Normalize Image", QCheckBox(), row)
-        row += 1
-        add_labled_widget("Percentile Low", DoubleSpinSlider([0, 1], 0.1), row)
-        row += 1
-        add_labled_widget(
-            "Percentile High", DoubleSpinSlider([0, 1], 0.9), row
-        )
-        row += 1
+        self._edge_color_button = add("Edge Color", QPushButton())
+        self._face_color_button = add("Face Color", QPushButton())
+
+        set_background_color_rgba(self._edge_color_button, self._edge_color)
+        set_background_color_rgba(self._face_color_button, self._face_color)
 
         grid.addWidget(bar(), row, 0, 1, 2)
         row += 1
 
         self._run_button = QPushButton("run")
-        self._run_button.clicked.connect(self._on_run)
+
         grid.addWidget(self._run_button, row, 0, 1, 2)
         row += 1
 
@@ -176,7 +179,57 @@ class SplineDistWidget(QWidget):
         row += 1
 
     def _connect_events(self):
-        pass
+
+        self.select_model_button.clicked.connect(
+            self._on_selected_model_folder
+        )
+
+        self._run_button.clicked.connect(self._on_run)
+
+        def on_click(btn):
+            if self._use_shipped_cb.isChecked():
+                self.select_model_button.setEnabled(False)
+                self._shipped_combo_box.setEnabled(True)
+            else:
+                self.select_model_button.setEnabled(True)
+                self._shipped_combo_box.setEnabled(False)
+
+        self.group.buttonClicked.connect(on_click)
+
+        self._edge_color_button.clicked.connect(self._get_edge_color)
+        self._face_color_button.clicked.connect(self._get_face_color)
+
+    def _get_edge_color(self):
+
+        dialog = QColorDialog()
+        dialog.setOption(QColorDialog.ShowAlphaChannel, on=True)
+        dialog.setCurrentColor(self._edge_color)
+        if dialog.exec_() == QColorDialog.Accepted:
+            self._edge_color = dialog.selectedColor()
+
+        set_background_color_rgba(self._edge_color_button, self._edge_color)
+
+        if self.interpolated_layer is not None:
+
+            self.interpolated_layer.edge_color = qcolor_as_array(
+                self._edge_color
+            )
+
+    def _get_face_color(self):
+
+        dialog = QColorDialog()
+        dialog.setOption(QColorDialog.ShowAlphaChannel, on=True)
+        dialog.setCurrentColor(self._face_color)
+        if dialog.exec_() == QColorDialog.Accepted:
+            self._face_color = dialog.selectedColor()
+
+        set_background_color_rgba(self._face_color_button, self._face_color)
+
+        if self.interpolated_layer is not None:
+
+            self.interpolated_layer.face_color = qcolor_as_array(
+                self._face_color
+            )
 
     def _verify_model_path(self, path):
         return
@@ -213,6 +266,8 @@ class SplineDistWidget(QWidget):
                 viewer=self.viewer,
                 interpolator=interpolator,
                 data=coords_list,
+                edge_color=qcolor_as_array(self._edge_color),
+                face_color=qcolor_as_array(self._face_color),
             )
             self.interpolated_layer = interpolated_layer
             self.ctrl_layer = ctrl_layer
@@ -220,6 +275,13 @@ class SplineDistWidget(QWidget):
             self.ctrl_layer.selected_data = set(range(self.ctrl_layer.nshapes))
             self.ctrl_layer.remove_selected()
             self.ctrl_layer.add_polygons(data=coords_list)
+            self.interpolated_layer.edge_color = qcolor_as_array(
+                self._edge_color
+            )
+
+            self.interpolated_layer.face_color = qcolor_as_array(
+                self._face_color
+            )
 
         self._progress_widget.setProgress("done!", 100)
 
