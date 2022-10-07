@@ -11,8 +11,10 @@ class Worker(QThread):
     errored = Signal(object)
     finished = Signal()
 
-    def __init__(self, sub_data, parent=None):
-        self.sub_data = sub_data
+    def __init__(self, data, slicing, parent=None, **kwargs):
+        self.data = data
+        self.slicing = slicing
+        self.kwargs = kwargs
         QThread.__init__(self, parent)
 
     def progress_callback(self, name, progress):
@@ -24,10 +26,12 @@ class Worker(QThread):
         try:
             self.progress.emit("prepare", 100)
             labels, details = predict(
-                self.sub_data, progress_callback=self.progress_callback
+                self.data,
+                progress_callback=self.progress_callback,
+                **self.kwargs
             )
 
-            self.resulted.emit([labels, details])
+            self.resulted.emit([labels, details, self.slicing])
 
         except Exception as e:
             self.errored.emit(e)
