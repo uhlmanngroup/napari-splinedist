@@ -22,12 +22,10 @@ class ImageLayerComboBox(QComboBox):
         self._viewer.layers.events.removed.connect(self._rebuild)
 
     def _on_layer_inserted(self, event):
-        rebuild = False
-        for source in event.source:
-            if isinstance(source, ImageLayer):
-                rebuild = True
-                source.events.name.connect(self._rebuild)
-        if rebuild:
+        layer = event.value
+        print("inserterd layer", layer)
+        if isinstance(layer, ImageLayer):
+            layer.events.name.connect(self._rebuild)
             self._rebuild()
 
     def _rebuild(self, *args, **kwargs):

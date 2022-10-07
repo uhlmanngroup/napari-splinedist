@@ -113,13 +113,12 @@ class SplineDistWidget(QWidget):
         self._normalize_img_cb.setChecked(True)
         self._low_quantile_slider = DoubleSpinSlider([0, 1], 0.01)
         self._high_quantile_slider = DoubleSpinSlider([0, 100], 0.998)
-
+        self._invert_img_cb = QCheckBox()
+        self._invert_img_cb.setChecked(False)
         self._prob_thresh_slider = DoubleSpinSlider([0, 1.0], 0.5)
         self._nms_thresh_slider =  DoubleSpinSlider([0, 1.0], 0.5)
-
         self._run_on_visible_only_cb = QCheckBox()
         self._run_on_visible_only_cb.setChecked(False)
-
         self._edge_color_sel = ColorPicklerPushButton(color=edge_color, with_alpha=True, tracking=True)
         self._face_color_sel = ColorPicklerPushButton(color=face_color, with_alpha=True, tracking=True)
         self._run_button = QPushButton("run")
@@ -136,11 +135,10 @@ class SplineDistWidget(QWidget):
         form.addRow("Normalize Image", self._normalize_img_cb)
         form.addRow("Percentile Low", self._low_quantile_slider)
         form.addRow("Percentile High", self._high_quantile_slider)
-
+        form.addRow("Invert Image", self._invert_img_cb)
         form.addRow("Prob Threshold", self._prob_thresh_slider)
         form.addRow("NMS threshold", self._nms_thresh_slider)
         form.addRow("On Visible Only", self._run_on_visible_only_cb)
-
         form.addRow("Edge Color", self._edge_color_sel)
         form.addRow("Face Color", self._face_color_sel)
         form.addRow("Run", self._run_button)
@@ -166,6 +164,16 @@ class SplineDistWidget(QWidget):
 
         self._edge_color_sel.colorChanged.connect(self._on_edge_color_changed)
         self._face_color_sel.colorChanged.connect(self._on_face_color_changed)
+
+        def on_layer_removed(event):
+            layer = event.value
+            print("removing", layer, type(layer), event.value)
+            if layer == self.interpolated_layer or layer == self.ctrl_layer:
+                print("BINGO")
+                self.interpolated_layer = None
+                self.ctrl_layer = None
+
+        self.viewer.layers.events.removed.connect(on_layer_removed)
 
     def _on_edge_color_changed(self, color):
         if self.interpolated_layer is not None:
@@ -220,13 +228,27 @@ class SplineDistWidget(QWidget):
         self.ctrl_layer = ctrl_layer
 
     def _update_result_layers(self, coords_list):
+
+        print(
+            f"PRE UPDATE {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
+        )
         # remove existing shapes
         self.ctrl_layer.remove_all()
-        # self.ctrl_layer.selected_data = set(range(self.ctrl_layer.nshapes))
-        # self.ctrl_layer.remove_selected()
+        print(
+            f"AFTR remove_all {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
+        )
         self.ctrl_layer.add_polygons(data=coords_list)
+
+        print(
+            f"AFTR add_polygons {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
+        )
+
         self.interpolated_layer.edge_color = self._edge_color_sel.asArray()
         self.interpolated_layer.face_color = self._face_color_sel.asArray()
+
+        print(
+            f"PRE POST_UPDATE {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
+        )
 
     def _transform_results(self, results):
 
@@ -278,6 +300,7 @@ class SplineDistWidget(QWidget):
             percentile_high=self._high_quantile_slider.value() * 100.0,
             prob_thresh=self._prob_thresh_slider.value(),
             nms_thresh=self._nms_thresh_slider.value(),
+            invert_image=self._invert_img_cb.checkState(),
         )
 
     def _on_run(self):

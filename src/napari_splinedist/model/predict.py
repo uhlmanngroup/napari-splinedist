@@ -62,6 +62,7 @@ def predict(
     normalize_image,
     percentile_low,
     percentile_high,
+    invert_image,
     prob_thresh,
     nms_thresh,
     grid=(2, 2),
@@ -80,6 +81,9 @@ def predict(
     model = build_model(model_path=model_path, grid=grid)
     if progress_callback is not None:
         progress_callback("build-model", 100)
+
+    if invert_image:
+        image = image.max() - image
 
     axis_norm = (0, 1)
     if normalize_image:
