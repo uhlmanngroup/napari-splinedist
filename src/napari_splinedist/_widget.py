@@ -12,7 +12,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy
+import numpy as np
+from napari.qt.threading import thread_worker
 from napari_splineit.interpolation import (
     interpolator_factory as splineit_interpolator_factory,
 )
@@ -20,6 +21,8 @@ from napari_splineit.layer.layer_factory import (
     layer_factory as splineit_layer_factory,
 )
 from napari_splineit.widgets.double_spin_slider import DoubleSpinSlider
+from napari_splineit.widgets.spin_slider import SpinSlider
+from qtpy.QtCore import Signal
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QButtonGroup,
@@ -36,10 +39,14 @@ from qtpy.QtWidgets import (
 
 from ._logging import logger
 from .exceptions import NoInputImageException, NoLoadedModelException
+from .model.predict import predict
 from .widgets.color_picker_push_button import ColorPicklerPushButton
 from .widgets.image_layer_combo_box import ImageLayerComboBox
 from .widgets.progress_widget import ProgressWidget
-from .worker import Worker
+
+# from qtpy.QtGui import QApplication
+# from qtpy.QtCore import Signal
+
 
 if TYPE_CHECKING:
     pass
@@ -63,6 +70,9 @@ def bar():
 
 
 class SplineDistWidget(QWidget):
+    chunked_results_forwarded = Signal(object, int, int)
+    # worker_continue = Signal(object)
+
     def __init__(self, napari_viewer):
         super().__init__()
 
@@ -79,6 +89,7 @@ class SplineDistWidget(QWidget):
         self._connect_events()
 
         self.worker = None
+        self.thread = None
 
         self.interpolated_layer = None
         self.ctrl_layer = None
@@ -119,6 +130,7 @@ class SplineDistWidget(QWidget):
         self._nms_thresh_slider =  DoubleSpinSlider([0, 1.0], 0.5)
         self._run_on_visible_only_cb = QCheckBox()
         self._run_on_visible_only_cb.setChecked(False)
+        self._n_chunks_slider =  SpinSlider([1,20], 1)
         self._edge_color_sel = ColorPicklerPushButton(color=edge_color, with_alpha=True, tracking=True)
         self._face_color_sel = ColorPicklerPushButton(color=face_color, with_alpha=True, tracking=True)
         self._run_button = QPushButton("run")
@@ -139,6 +151,7 @@ class SplineDistWidget(QWidget):
         form.addRow("Prob Threshold", self._prob_thresh_slider)
         form.addRow("NMS threshold", self._nms_thresh_slider)
         form.addRow("On Visible Only", self._run_on_visible_only_cb)
+        form.addRow("Add-Chunked", self._n_chunks_slider)
         form.addRow("Edge Color", self._edge_color_sel)
         form.addRow("Face Color", self._face_color_sel)
         form.addRow("Run", self._run_button)
@@ -212,20 +225,52 @@ class SplineDistWidget(QWidget):
         print("_on_worker_started")
         self._progress_widget.setProgress("prepare", 25)
 
+        # create layers or update existing layers
+        if self.interpolated_layer is None:
+            self._create_empty_result_layers()
+
     def _on_worker_finished(self):
         self._run_button.setEnabled(True)
 
     def _create_result_layers(self, coords_list):
+        data = np.array(coords_list)
         interpolator = splineit_interpolator_factory(name="UhlmannSplines")
         interpolated_layer, ctrl_layer = splineit_layer_factory(
             viewer=self.viewer,
             interpolator=interpolator,
-            data=coords_list,
+            data=np.array(coords_list),
             edge_color=self._edge_color_sel.asArray(),
             face_color=self._face_color_sel.asArray(),
+            current_edge_color=self._edge_color_sel.asArray(),
+            current_face_color=self._face_color_sel.asArray(),
+        )
+        # for sd in np.array_split(data, 10):
+        #     ctrl_layer.add(sd)
+
+        self.interpolated_layer = interpolated_layer
+        self.ctrl_layer = ctrl_layer
+
+    def _create_empty_result_layers(self):
+        interpolator = splineit_interpolator_factory(name="UhlmannSplines")
+        interpolated_layer, ctrl_layer = splineit_layer_factory(
+            viewer=self.viewer, interpolator=interpolator
         )
         self.interpolated_layer = interpolated_layer
         self.ctrl_layer = ctrl_layer
+
+    def _remove_all_from_result_layer(self):
+        self.ctrl_layer.remove_all()
+
+    def _add_to_result_layers(self, data):
+
+        self._progress_widget.setProgress("make layers", 0)
+        self.ctrl_layer.set_polygons(
+            data=data,
+            edge_color=self._edge_color_sel.asArray(),
+            face_color=self._face_color_sel.asArray(),
+            current_edge_color=self._edge_color_sel.asArray(),
+            current_face_color=self._face_color_sel.asArray(),
+        )
 
     def _update_result_layers(self, coords_list):
 
@@ -250,38 +295,8 @@ class SplineDistWidget(QWidget):
             f"PRE POST_UPDATE {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
         )
 
-    def _transform_results(self, results):
-
-        labels, details, slicing = results
-        if slicing is not None:
-            offset = numpy.array([slicing[0].start, slicing[1].start])
-        else:
-            offset = numpy.array([0, 0])
-        coords = details["coord"]
-        coords_list = []
-        for i in range(coords.shape[0]):
-            coords_list.append(coords[i, ...].T + offset)
-        return coords_list
-
-    def _on_worker_resulted(self, results):
-
-        self._progress_widget.setProgress("make layers", 0)
-
-        # convert the results st. napari-splineit
-        # understands them
-        coords_list = self._transform_results(results)
-
-        # create layers or update existing layers
-        if self.interpolated_layer is None:
-            self._create_result_layers(coords_list)
-        else:
-            self._update_result_layers(coords_list)
-
-        # some progress reporting
-        self._progress_widget.setProgress("done!", 100)
-
     def _on_worker_progress(self, name, progress):
-
+        # pass
         self._progress_widget.setProgress(name, progress)
 
     def _on_worker_errored(self, e):
@@ -301,6 +316,7 @@ class SplineDistWidget(QWidget):
             prob_thresh=self._prob_thresh_slider.value(),
             nms_thresh=self._nms_thresh_slider.value(),
             invert_image=self._invert_img_cb.checkState(),
+            add_in_n_chunks=self._n_chunks_slider.value(),
         )
 
     def _on_run(self):
@@ -322,35 +338,41 @@ class SplineDistWidget(QWidget):
             slicing = None
             data = input_layer.data
 
-        # pass data and parameter to fresh worker
-        self.worker = Worker(
-            data=data,
-            slicing=slicing,
+        def transform_results(details, slicing):
+            if slicing is not None:
+                offset = np.array([slicing[0].start, slicing[1].start])
+            else:
+                offset = np.array([0, 0])
+            coords = details["coord"]
+            coords_list = []
+            for i in range(coords.shape[0]):
+                coords_list.append(coords[i, ...].T + offset)
+            return coords_list
+
+        def chunks(lst, n):
+            for i in range(0, len(lst), n):
+                yield lst[i : i + n]
+
+        @thread_worker
+        def work_function(data, slicing, add_in_n_chunks, **kwargs):
+
+            labels, details = predict(data, **kwargs)
+            coords_list = transform_results(details, slicing)
+
+            yield coords_list
+
+            return
+
+        self.worker = work_function(
+            data,
+            slicing,
             model_path=self._get_model_path(),
             **self._build_parameters(),
         )
 
-        # connect all the signals for communication between
-        # worker thread and this widget:
-
-        # when worker starts..nothing important to do
         self.worker.started.connect(self._on_worker_started)
-
-        # when the worker produced results without errors
-        self.worker.resulted.connect(self._on_worker_resulted)
-
-        # called when exceptions/errors happen in the worker
-        self.worker.errored.connect(self._on_worker_errored)
-
-        # called when worker is done. this is called no matter
-        # if errors happend or not
         self.worker.finished.connect(self._on_worker_finished)
+        self.worker.errored.connect(self._on_worker_errored)
+        self.worker.yielded.connect(self._add_to_result_layers)
 
-        # this can be called from the worker to report progress
-        self.worker.progress.connect(self._on_worker_progress)
-
-        # start the worker thread
         self.worker.start()
-
-        # report some progress
-        self._progress_widget.setProgress("prepare", 50)
