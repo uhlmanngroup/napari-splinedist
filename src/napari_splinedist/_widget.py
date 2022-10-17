@@ -8,10 +8,11 @@ TODOS:
     * pass more parameters
 
 """
-import os
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import appdirs
 import numpy as np
 from napari.layers import Image as ImageLayer
 from napari.layers.shapes.shapes import Mode
@@ -19,6 +20,7 @@ from napari.qt.threading import thread_worker
 from napari_splineit.interpolation import (
     interpolator_factory as splineit_interpolator_factory,
 )
+from napari_splineit.interpolation.uhlmann import knots_from_coefs
 from napari_splineit.layer.layer_factory import (
     layer_factory as splineit_layer_factory,
 )
@@ -27,33 +29,64 @@ from napari_splineit.widgets.spin_slider import SpinSlider
 from qtpy.QtCore import Signal
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
-    QComboBox,
-    QFileDialog,
     QFormLayout,
     QFrame,
-    QLabel,
     QPushButton,
     QSizePolicy,
     QWidget,
 )
 
 from ._logging import logger
-from .exceptions import NoInputImageException, NoLoadedModelException
+from .exceptions import NoInputImageException
 from .model.predict import predict
 from .utils.colormap import make_labels_colormap
 from .widgets.color_picker_push_button import ColorPicklerPushButton
 from .widgets.image_layer_combo_box import ImageLayerComboBox
+from .widgets.model_download_combo_box import ModelDownloadComboBox
 from .widgets.progress_widget import ProgressWidget
 from .worker import GeneratorWorker
 
 # from qtpy.QtGui import QApplication
 # from qtpy.QtCore import Signal
 
-
 if TYPE_CHECKING:
     pass
+
+
+APP_NAME = "NapariSplineDist"
+APP_AUTHOR = "NapariSplineDistAuthors"
+SPLINEIT_APPDIR = Path(appdirs.user_data_dir(APP_NAME, APP_AUTHOR))
+META_PATH = SPLINEIT_APPDIR / "models_meta.json"
+
+
+if not META_PATH.exists():
+    print("store meta")
+    DEFAULT_MODEL_META = [
+        {
+            "name": "bbbc038",
+            "urls": {
+                6: "https://zenodo.org/record/7194989/files/bbbc038_6.zip?download=1",
+                8: "https://zenodo.org/record/7194995/files/bbbc038_8.zip?download=1",
+                10: "https://zenodo.org/record/7195003/files/bbbc038_10.zip?download=1",
+                16: "https://zenodo.org/record/7195001/files/bbbc038_16.zip?download=1",
+            },
+        },
+        {
+            "name": "conic",
+            "urls": {
+                6: "https://zenodo.org/record/7195005/files/conic_6.zip?download=1",
+                8: "https://zenodo.org/record/7195007/files/conic_8.zip?download=1",
+                10: "https://zenodo.org/record/7195011/files/conic_10.zip?download=1",
+                # 16: "https://zenodo.org/record/7195013/files/conic_16.zip?download=1",
+            },
+        },
+    ]
+    with open(META_PATH, "w") as f:
+        json.dump(DEFAULT_MODEL_META, f, indent=4)
+
+with open(META_PATH) as f:
+    MODEL_META = json.load(f)
 
 
 def shorten_path(file_path, length):
@@ -86,10 +119,10 @@ class SplineDistWidget(QWidget):
         edge_color = QColor(255, 0, 0, 255)
         face_color = QColor(85, 170, 255, 100)
 
-        self._find_shippd_models()
-
         self._init_ui(edge_color=edge_color, face_color=face_color)
         self._connect_events()
+
+        self._model_download_combo_box.setModelsMeta(MODEL_META)
 
         self.worker = None
         self.thread = None
@@ -101,34 +134,15 @@ class SplineDistWidget(QWidget):
         # last results
         self._last_results = None
 
-    def _find_shippd_models(self):
-        this_dir = Path(os.path.dirname(os.path.realpath(__file__)))
-        shipped_models_dir = this_dir / "model" / "shipped_models"
-
-        self._shipped_models = []
-        for path in shipped_models_dir.iterdir():
-            if path.is_dir():
-                self._shipped_models.append(path)
-
     def _init_ui(self, edge_color, face_color):
 
         form = QFormLayout()
         self.setLayout(form)
         # fmt: off
         self._input_image_combo_box = ImageLayerComboBox(self.viewer)
-        self._use_shipped_cb = QCheckBox()
-        self._use_shipped_cb.setChecked(True)
-        self._use_loaded_cb = QCheckBox()
-        self._use_loaded_cb.setChecked(False)
-        self.group = QButtonGroup(self)
-        self.group.addButton(self._use_shipped_cb)
-        self.group.addButton(self._use_loaded_cb)
-        self._shipped_combo_box = QComboBox()
-        for sm in self._shipped_models:
-            self._shipped_combo_box.addItem(sm.name)
+        self._model_download_combo_box = ModelDownloadComboBox(SPLINEIT_APPDIR)
         self._select_model_button = QPushButton("Select model")
         self._select_model_button.setEnabled(False)
-        self._model_path_label = QLabel("None")
         self._normalize_img_cb = QCheckBox()
         self._normalize_img_cb.setChecked(True)
         self._low_quantile_slider = DoubleSpinSlider([0, 1], 0.01)
@@ -152,11 +166,7 @@ class SplineDistWidget(QWidget):
         # fmt: on
 
         form.addRow("Input Image", self._input_image_combo_box)
-        form.addRow("Use Shipped Model", self._use_shipped_cb)
-        form.addRow("Model", self._shipped_combo_box)
-        form.addRow("Use Loaded Model", self._use_loaded_cb)
-        form.addRow("Select Model", self._select_model_button)
-        form.addRow("Selected Model", self._model_path_label)
+        form.addRow("Select Model", self._model_download_combo_box)
         form.addRow("Normalize Image", self._normalize_img_cb)
         form.addRow("Percentile Low", self._low_quantile_slider)
         form.addRow("Percentile High", self._high_quantile_slider)
@@ -176,21 +186,7 @@ class SplineDistWidget(QWidget):
 
     def _connect_events(self):
 
-        self._select_model_button.clicked.connect(
-            self._on_selected_model_folder
-        )
-
         self._run_button.clicked.connect(self._on_run)
-
-        def on_click(btn):
-            if self._use_shipped_cb.isChecked():
-                self._select_model_button.setEnabled(False)
-                self._shipped_combo_box.setEnabled(True)
-            else:
-                self._select_model_button.setEnabled(True)
-                self._shipped_combo_box.setEnabled(False)
-
-        self.group.buttonClicked.connect(on_click)
 
         self._edge_color_sel.colorChanged.connect(self._on_edge_color_changed)
         self._face_color_sel.colorChanged.connect(self._on_face_color_changed)
@@ -206,6 +202,16 @@ class SplineDistWidget(QWidget):
         self.viewer.layers.events.removed.connect(on_layer_removed)
 
         self._edit_button.clicked.connect(self._on_edit_button)
+
+        def model_availablity_changed(is_available):
+            if is_available:
+                self._run_button.setEnabled(True)
+            else:
+                self._run_button.setEnabled(False)
+
+        self._model_download_combo_box.model_availablity_changed.connect(
+            model_availablity_changed
+        )
 
     def _on_edge_color_changed(self, color):
         if self.interpolated_layer is not None:
@@ -227,22 +233,8 @@ class SplineDistWidget(QWidget):
         crop = tuple(slice(i[0], i[1]) for i in input_layer.corner_pixels.T)
         return crop
 
-    def _on_selected_model_folder(self):
-        path = QFileDialog.getExistingDirectory(
-            self, "Select a splinedist model folder"
-        )
-        self._verify_model_path(path)
-        self._user_model_path = Path(path)
-
-        self._model_path_label.setText(shorten_path(path, 2))
-
     def _get_model_path(self):
-        if self._use_shipped_cb.checkState():
-            return self._shipped_models[self._shipped_combo_box.currentIndex()]
-        else:
-            if self._user_model_path is None:
-                raise NoLoadedModelException()
-            return self._user_model_path
+        return self._model_download_combo_box._current_model_path()
 
     def _on_worker_started(self):
         self._progress_widget.setProgress("prepare", 25)
@@ -254,6 +246,7 @@ class SplineDistWidget(QWidget):
     def _on_worker_finished(self):
         self._run_button.setEnabled(True)
         self._edit_button.setEnabled(True)
+        self._model_download_combo_box.setEnabled(True)
 
     def _create_empty_result_layers(self):
         interpolator = splineit_interpolator_factory(name="UhlmannSplines")
@@ -273,8 +266,8 @@ class SplineDistWidget(QWidget):
         i_interpolated = self.viewer.layers.index(self.interpolated_layer)
         if i_labels > i_interpolated:
             self.viewer.layers.move_multiple(
-                sources=[i_labels, i_ctrl],
-                dest_index=i_interpolated,
+                sources=[i_labels, i_interpolated],
+                dest_index=i_ctrl,
             )
 
         i_labels = self.viewer.layers.index(self.labels_layer)
@@ -354,6 +347,7 @@ class SplineDistWidget(QWidget):
 
         self._run_button.setEnabled(False)
         self._edit_button.setEnabled(False)
+        self._model_download_combo_box.setEnabled(False)
 
         if self._run_on_visible_only_cb.checkState():
 
@@ -370,10 +364,12 @@ class SplineDistWidget(QWidget):
                 offset = np.array([slicing[0].start, slicing[1].start])
             else:
                 offset = np.array([0, 0])
+            print(details.keys())
             coords = details["coord"]
             coords_list = []
             for i in range(coords.shape[0]):
-                coords_list.append(coords[i, ...].T + offset)
+
+                coords_list.append(knots_from_coefs(coords[i, ...].T) + offset)
             return coords_list
 
         @thread_worker(worker_class=GeneratorWorker)

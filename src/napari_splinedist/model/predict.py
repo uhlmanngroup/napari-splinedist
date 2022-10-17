@@ -53,7 +53,7 @@ def build_model(model_path, grid=(2, 2)):
     grid_generator(M, conf.train_patch_size, conf.grid, str(model_path))
 
     basedir = model_path.parent
-    return SplineDist2D(None, name="bbbc038_M8", basedir=str(basedir))
+    return SplineDist2D(None, name=model_path.name, basedir=str(basedir))
 
 
 def predict(
@@ -69,6 +69,7 @@ def predict(
     progress_callback=None,
     n_tiles=None,
 ):
+    print("model_path", model_path)
     # if the image has an integral dtype, we normalize
     # by dividing with the max value for that dtype
     # even when normalize_image == False
