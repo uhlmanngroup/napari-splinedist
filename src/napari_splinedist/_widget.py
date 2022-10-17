@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from napari.layers import Image as ImageLayer
+from napari.layers.shapes.shapes import Mode
 from napari.qt.threading import thread_worker
 from napari_splineit.interpolation import (
     interpolator_factory as splineit_interpolator_factory,
@@ -40,9 +42,11 @@ from qtpy.QtWidgets import (
 from ._logging import logger
 from .exceptions import NoInputImageException, NoLoadedModelException
 from .model.predict import predict
+from .utils.colormap import make_labels_colormap
 from .widgets.color_picker_push_button import ColorPicklerPushButton
 from .widgets.image_layer_combo_box import ImageLayerComboBox
 from .widgets.progress_widget import ProgressWidget
+from .worker import GeneratorWorker
 
 # from qtpy.QtGui import QApplication
 # from qtpy.QtCore import Signal
@@ -82,7 +86,6 @@ class SplineDistWidget(QWidget):
         edge_color = QColor(255, 0, 0, 255)
         face_color = QColor(85, 170, 255, 100)
 
-        # todo
         self._find_shippd_models()
 
         self._init_ui(edge_color=edge_color, face_color=face_color)
@@ -93,6 +96,10 @@ class SplineDistWidget(QWidget):
 
         self.interpolated_layer = None
         self.ctrl_layer = None
+        self.labels_layer = None
+
+        # last results
+        self._last_results = None
 
     def _find_shippd_models(self):
         this_dir = Path(os.path.dirname(os.path.realpath(__file__)))
@@ -110,7 +117,9 @@ class SplineDistWidget(QWidget):
         # fmt: off
         self._input_image_combo_box = ImageLayerComboBox(self.viewer)
         self._use_shipped_cb = QCheckBox()
+        self._use_shipped_cb.setChecked(True)
         self._use_loaded_cb = QCheckBox()
+        self._use_loaded_cb.setChecked(False)
         self.group = QButtonGroup(self)
         self.group.addButton(self._use_shipped_cb)
         self.group.addButton(self._use_loaded_cb)
@@ -130,12 +139,16 @@ class SplineDistWidget(QWidget):
         self._nms_thresh_slider =  DoubleSpinSlider([0, 1.0], 0.5)
         self._run_on_visible_only_cb = QCheckBox()
         self._run_on_visible_only_cb.setChecked(False)
-        self._n_chunks_slider =  SpinSlider([1,20], 1)
+
+        self._n_tiles_x = SpinSlider([1, 10], 1)
+        self._n_tiles_y = SpinSlider([1, 10], 1)
+
         self._edge_color_sel = ColorPicklerPushButton(color=edge_color, with_alpha=True, tracking=True)
         self._face_color_sel = ColorPicklerPushButton(color=face_color, with_alpha=True, tracking=True)
         self._run_button = QPushButton("run")
         self._progress_widget = ProgressWidget(self)
-        self._use_shipped_cb.setChecked(True)
+
+        self._edit_button = QPushButton("Edit")
         # fmt: on
 
         form.addRow("Input Image", self._input_image_combo_box)
@@ -151,11 +164,15 @@ class SplineDistWidget(QWidget):
         form.addRow("Prob Threshold", self._prob_thresh_slider)
         form.addRow("NMS threshold", self._nms_thresh_slider)
         form.addRow("On Visible Only", self._run_on_visible_only_cb)
-        form.addRow("Add-Chunked", self._n_chunks_slider)
+        form.addRow("#tiles-x", self._n_tiles_x)
+        form.addRow("#tiles-y", self._n_tiles_y)
         form.addRow("Edge Color", self._edge_color_sel)
         form.addRow("Face Color", self._face_color_sel)
         form.addRow("Run", self._run_button)
         form.addRow("Progress", self._progress_widget)
+
+        form.addRow("Edit", self._edit_button)
+        self._edit_button.setEnabled(False)
 
     def _connect_events(self):
 
@@ -180,21 +197,27 @@ class SplineDistWidget(QWidget):
 
         def on_layer_removed(event):
             layer = event.value
-            print("removing", layer, type(layer), event.value)
             if layer == self.interpolated_layer or layer == self.ctrl_layer:
-                print("BINGO")
                 self.interpolated_layer = None
                 self.ctrl_layer = None
+            if layer == self.labels_layer:
+                self.labels_layer = None
 
         self.viewer.layers.events.removed.connect(on_layer_removed)
 
+        self._edit_button.clicked.connect(self._on_edit_button)
+
     def _on_edge_color_changed(self, color):
         if self.interpolated_layer is not None:
-            self.interpolated_layer.edge_color = self._edge_color_sel.asArray()
+            arr = self._edge_color_sel.asArray()
+            self.interpolated_layer.edge_color = arr
+            self.interpolated_layer.current_edge_color = arr
 
     def _on_face_color_changed(self, color):
         if self.interpolated_layer is not None:
-            self.interpolated_layer.face_color = self._face_color_sel.asArray()
+            arr = self._face_color_sel.asArray()
+            self.interpolated_layer.face_color = arr
+            self.interpolated_layer.current_face_color = arr
 
     def _verify_model_path(self, path):
         return
@@ -222,7 +245,6 @@ class SplineDistWidget(QWidget):
             return self._user_model_path
 
     def _on_worker_started(self):
-        print("_on_worker_started")
         self._progress_widget.setProgress("prepare", 25)
 
         # create layers or update existing layers
@@ -231,24 +253,7 @@ class SplineDistWidget(QWidget):
 
     def _on_worker_finished(self):
         self._run_button.setEnabled(True)
-
-    def _create_result_layers(self, coords_list):
-        data = np.array(coords_list)
-        interpolator = splineit_interpolator_factory(name="UhlmannSplines")
-        interpolated_layer, ctrl_layer = splineit_layer_factory(
-            viewer=self.viewer,
-            interpolator=interpolator,
-            data=np.array(coords_list),
-            edge_color=self._edge_color_sel.asArray(),
-            face_color=self._face_color_sel.asArray(),
-            current_edge_color=self._edge_color_sel.asArray(),
-            current_face_color=self._face_color_sel.asArray(),
-        )
-        # for sd in np.array_split(data, 10):
-        #     ctrl_layer.add(sd)
-
-        self.interpolated_layer = interpolated_layer
-        self.ctrl_layer = ctrl_layer
+        self._edit_button.setEnabled(True)
 
     def _create_empty_result_layers(self):
         interpolator = splineit_interpolator_factory(name="UhlmannSplines")
@@ -257,46 +262,61 @@ class SplineDistWidget(QWidget):
         )
         self.interpolated_layer = interpolated_layer
         self.ctrl_layer = ctrl_layer
+        self.labels_layer = None
 
-    def _remove_all_from_result_layer(self):
-        self.ctrl_layer.remove_all()
+    def _on_edit_button(self):
 
-    def _add_to_result_layers(self, data):
+        # make sure the interpolated layers are "above" the
+        # labels layer
+        i_labels = self.viewer.layers.index(self.labels_layer)
+        i_ctrl = self.viewer.layers.index(self.ctrl_layer)
+        i_interpolated = self.viewer.layers.index(self.interpolated_layer)
+        if i_labels > i_interpolated:
+            self.viewer.layers.move_multiple(
+                sources=[i_labels, i_ctrl],
+                dest_index=i_interpolated,
+            )
 
-        self._progress_widget.setProgress("make layers", 0)
-        self.ctrl_layer.set_polygons(
-            data=data,
-            edge_color=self._edge_color_sel.asArray(),
-            face_color=self._face_color_sel.asArray(),
-            current_edge_color=self._edge_color_sel.asArray(),
-            current_face_color=self._face_color_sel.asArray(),
-        )
+        i_labels = self.viewer.layers.index(self.labels_layer)
+        i_ctrl = self.viewer.layers.index(self.ctrl_layer)
+        i_interpolated = self.viewer.layers.index(self.interpolated_layer)
+        print(i_labels, i_ctrl, i_interpolated)
 
-    def _update_result_layers(self, coords_list):
+        if self._last_results is not None:
+            self._edit_button.setEnabled(False)
+            labels, coords_list = self._last_results
 
-        print(
-            f"PRE UPDATE {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
-        )
-        # remove existing shapes
-        self.ctrl_layer.remove_all()
-        print(
-            f"AFTR remove_all {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
-        )
-        self.ctrl_layer.add_polygons(data=coords_list)
+            self.ctrl_layer.set_polygons(
+                data=coords_list,
+                edge_color=self._edge_color_sel.asArray(),
+                face_color=self._face_color_sel.asArray(),
+                current_edge_color=self._edge_color_sel.asArray(),
+                current_face_color=self._face_color_sel.asArray(),
+            )
 
-        print(
-            f"AFTR add_polygons {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
-        )
+        else:
+            raise RuntimeError("internal errro: has no results to edit")
 
-        self.interpolated_layer.edge_color = self._edge_color_sel.asArray()
-        self.interpolated_layer.face_color = self._face_color_sel.asArray()
+        self.viewer.layers.selection.active = self.ctrl_layer
+        self.ctrl_layer.mode = Mode.DIRECT
 
-        print(
-            f"PRE POST_UPDATE {len(self.interpolated_layer.face_color) = }  {len(self.interpolated_layer._data_view.shapes) = }"
-        )
+    def _on_worker_yielded_results(self, results):
+
+        # store results
+        self._last_results = results
+
+        labels, coords_list = results
+
+        if self.labels_layer is None:
+            self.labels_layer = ImageLayer(
+                data=labels,
+                colormap=make_labels_colormap(labels),
+            )
+            self.viewer.add_layer(self.labels_layer)
+        else:
+            self.labels_layer.data = labels
 
     def _on_worker_progress(self, name, progress):
-        # pass
         self._progress_widget.setProgress(name, progress)
 
     def _on_worker_errored(self, e):
@@ -309,6 +329,12 @@ class SplineDistWidget(QWidget):
         return self._input_image_combo_box.currentLayer()
 
     def _build_parameters(self):
+        n_tiles_x = self._n_tiles_x.value()
+        n_tiles_y = self._n_tiles_x.value()
+        n_tiles = (n_tiles_x, n_tiles_y)
+        if n_tiles_x == 1 and n_tiles_y == 1:
+            n_tiles = None
+
         return dict(
             normalize_image=self._normalize_img_cb.checkState(),
             percentile_low=self._low_quantile_slider.value() * 100.0,
@@ -316,7 +342,7 @@ class SplineDistWidget(QWidget):
             prob_thresh=self._prob_thresh_slider.value(),
             nms_thresh=self._nms_thresh_slider.value(),
             invert_image=self._invert_img_cb.checkState(),
-            add_in_n_chunks=self._n_chunks_slider.value(),
+            n_tiles=n_tiles,
         )
 
     def _on_run(self):
@@ -327,6 +353,7 @@ class SplineDistWidget(QWidget):
         self._progress_widget.setProgress("prepare", 0)
 
         self._run_button.setEnabled(False)
+        self._edit_button.setEnabled(False)
 
         if self._run_on_visible_only_cb.checkState():
 
@@ -349,17 +376,17 @@ class SplineDistWidget(QWidget):
                 coords_list.append(coords[i, ...].T + offset)
             return coords_list
 
-        def chunks(lst, n):
-            for i in range(0, len(lst), n):
-                yield lst[i : i + n]
+        @thread_worker(worker_class=GeneratorWorker)
+        def work_function(data, slicing, **kwargs):
+            def progress_callback(name, progress):
+                self.worker.extra_signals.progress.emit(name, int(progress))
 
-        @thread_worker
-        def work_function(data, slicing, add_in_n_chunks, **kwargs):
-
-            labels, details = predict(data, **kwargs)
+            labels, details = predict(
+                data, progress_callback=progress_callback, **kwargs
+            )
             coords_list = transform_results(details, slicing)
 
-            yield coords_list
+            yield labels, coords_list
 
             return
 
@@ -373,6 +400,6 @@ class SplineDistWidget(QWidget):
         self.worker.started.connect(self._on_worker_started)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.errored.connect(self._on_worker_errored)
-        self.worker.yielded.connect(self._add_to_result_layers)
-
+        self.worker.yielded.connect(self._on_worker_yielded_results)
+        self.worker.extra_signals.progress.connect(self._on_worker_progress)
         self.worker.start()

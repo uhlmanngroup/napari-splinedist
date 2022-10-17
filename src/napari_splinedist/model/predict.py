@@ -67,6 +67,7 @@ def predict(
     nms_thresh,
     grid=(2, 2),
     progress_callback=None,
+    n_tiles=None,
 ):
     # if the image has an integral dtype, we normalize
     # by dividing with the max value for that dtype
@@ -97,6 +98,7 @@ def predict(
         progress_callback=progress_callback,
         prob_thresh=prob_thresh,
         nms_thresh=nms_thresh,
+        n_tiles=n_tiles,
     )
 
     return labels, details
