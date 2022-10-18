@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 APP_NAME = "NapariSplineDist"
 APP_AUTHOR = "NapariSplineDistAuthors"
 SPLINEIT_APPDIR = Path(appdirs.user_data_dir(APP_NAME, APP_AUTHOR))
+SPLINEIT_APPDIR.mkdir(exist_ok=True, parents=True)
 META_PATH = SPLINEIT_APPDIR / "models_meta.json"
 
 DEFAULT_MODEL_META = [
