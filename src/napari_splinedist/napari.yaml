@@ -2,16 +2,22 @@ name: napari-splinedist
 display_name: SplineDist
 contributions:
   commands:
-    - id: napari-splinedist.make_sample_data
-      python_name: napari_splinedist._sample_data:make_sample_data
+    - id: napari-splinedist.sample_data_bbbc038
+      python_name: napari_splinedist._sample_data:sample_data_bbbc038
+      title: Load sample data from SplineDist
+    - id: napari-splinedist.sample_data_conic
+      python_name: napari_splinedist._sample_data:sample_data_conic
       title: Load sample data from SplineDist
     - id: napari-splinedist.make_qwidget
       python_name: napari_splinedist._widget:SplineDistWidget
       title: Make example QWidget
   sample_data:
-    - command: napari-splinedist.make_sample_data
-      display_name: SplineDist
+    - command: napari-splinedist.sample_data_bbbc038
+      display_name: bbbc038
       key: unique_id.1
+    - command: napari-splinedist.sample_data_conic
+      display_name: conic
+      key: unique_id.2
   widgets:
     - command: napari-splinedist.make_qwidget
       display_name: Example QWidget

@@ -4,28 +4,11 @@
 #     absolute_import,
 #     division,
 # )
-import os
-import sys
-
-sys.path.append(os.path.dirname(os.path.realpath(__file__)))
-
 import json
-import os
-import sys
 from pathlib import Path
 
 import numpy as np
 from csbdeep.utils import normalize
-
-# from csbdeep.io import save_tiff_imagej_compatible
-
-
-# from splinedist.models import SplineDist2D
-
-
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
-
 from splinedist.utils import grid_generator, phi_generator
 
 from .._logging import logger
@@ -56,6 +39,11 @@ def build_model(model_path, grid=(2, 2)):
     return SplineDist2D(None, name=model_path.name, basedir=str(basedir))
 
 
+class PredictionError(Exception):
+    def __init__(self, message=None):
+        super().__init__(message)
+
+
 def predict(
     image,
     model_path,
@@ -65,10 +53,28 @@ def predict(
     invert_image,
     prob_thresh,
     nms_thresh,
+    model_meta,
     grid=(2, 2),
     progress_callback=None,
     n_tiles=None,
 ):
+    # how many color channels does the imag have?
+    if image.ndim == 2:
+        in_channels = 1
+    elif image.ndim == 3:
+        in_channels = image.shape[2]
+
+    model_in_channels = model_meta["in_channels"]
+    # are they matching with the models expected
+    # number of channels?
+    if in_channels != model_in_channels:
+        if model_in_channels == 1:
+            image = np.sum(image, axis=2) / in_channels
+        else:
+            raise PredictionError(
+                f"{in_channels} != {model_meta['in_channels']}"
+            )
+
     print("model_path", model_path)
     # if the image has an integral dtype, we normalize
     # by dividing with the max value for that dtype
@@ -85,6 +91,8 @@ def predict(
         progress_callback("build-model", 100)
 
     if invert_image:
+        if in_channels > 1:
+            raise PredictionError("only gray image can be inverted")
         image = image.max() - image
 
     axis_norm = (0, 1)
@@ -96,7 +104,7 @@ def predict(
         # img = normalize(image, 0.0, 100.0, axis=axis_norm)
     labels, details = model.predict_instances(
         img,
-        progress_callback=progress_callback,
+        # progress_callback=progress_callback,
         prob_thresh=prob_thresh,
         nms_thresh=nms_thresh,
         n_tiles=n_tiles,

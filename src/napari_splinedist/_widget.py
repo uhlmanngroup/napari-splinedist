@@ -59,29 +59,32 @@ APP_AUTHOR = "NapariSplineDistAuthors"
 SPLINEIT_APPDIR = Path(appdirs.user_data_dir(APP_NAME, APP_AUTHOR))
 META_PATH = SPLINEIT_APPDIR / "models_meta.json"
 
+DEFAULT_MODEL_META = [
+    {
+        "name": "bbbc038",
+        "in_channels": 1,
+        "urls": {
+            6: "https://zenodo.org/record/7194989/files/bbbc038_6.zip?download=1",
+            8: "https://zenodo.org/record/7194995/files/bbbc038_8.zip?download=1",
+            10: "https://zenodo.org/record/7195003/files/bbbc038_10.zip?download=1",
+            16: "https://zenodo.org/record/7195001/files/bbbc038_16.zip?download=1",
+        },
+    },
+    {
+        "name": "conic",
+        "in_channels": 3,
+        "urls": {
+            6: "https://zenodo.org/record/7195005/files/conic_6.zip?download=1",
+            8: "https://zenodo.org/record/7195007/files/conic_8.zip?download=1",
+            10: "https://zenodo.org/record/7195011/files/conic_10.zip?download=1",
+            16: "https://zenodo.org/record/7195013/files/conic_16.zip?download=1",
+        },
+    },
+]
 
 if not META_PATH.exists():
     print("store meta")
-    DEFAULT_MODEL_META = [
-        {
-            "name": "bbbc038",
-            "urls": {
-                6: "https://zenodo.org/record/7194989/files/bbbc038_6.zip?download=1",
-                8: "https://zenodo.org/record/7194995/files/bbbc038_8.zip?download=1",
-                10: "https://zenodo.org/record/7195003/files/bbbc038_10.zip?download=1",
-                16: "https://zenodo.org/record/7195001/files/bbbc038_16.zip?download=1",
-            },
-        },
-        {
-            "name": "conic",
-            "urls": {
-                6: "https://zenodo.org/record/7195005/files/conic_6.zip?download=1",
-                8: "https://zenodo.org/record/7195007/files/conic_8.zip?download=1",
-                10: "https://zenodo.org/record/7195011/files/conic_10.zip?download=1",
-                # 16: "https://zenodo.org/record/7195013/files/conic_16.zip?download=1",
-            },
-        },
-    ]
+
     with open(META_PATH, "w") as f:
         json.dump(DEFAULT_MODEL_META, f, indent=4)
 
@@ -157,8 +160,14 @@ class SplineDistWidget(QWidget):
         self._n_tiles_x = SpinSlider([1, 10], 1)
         self._n_tiles_y = SpinSlider([1, 10], 1)
 
-        self._edge_color_sel = ColorPicklerPushButton(color=edge_color, with_alpha=True, tracking=True)
-        self._face_color_sel = ColorPicklerPushButton(color=face_color, with_alpha=True, tracking=True)
+        self._edge_color_sel = ColorPicklerPushButton(
+            color=edge_color,
+            with_alpha=True,
+            tracking=True)
+        self._face_color_sel = ColorPicklerPushButton(
+            color=face_color,
+            with_alpha=True,
+            tracking=True)
         self._run_button = QPushButton("run")
         self._progress_widget = ProgressWidget(self)
 
@@ -313,8 +322,10 @@ class SplineDistWidget(QWidget):
         self._progress_widget.setProgress(name, progress)
 
     def _on_worker_errored(self, e):
-        self._progress_widget.setProgress("ERRORED!", 100)
-        raise RuntimeError(e)
+        print("HANDLING ERR")
+        # self._progress_widget.setProgress("ERRORED!", 100)
+        # self._on_worker_finished()
+        # raise RuntimeError(e)
 
     def _get_input_layer(self):
         if self._input_image_combo_box.count() == 0:
@@ -349,46 +360,54 @@ class SplineDistWidget(QWidget):
         self._edit_button.setEnabled(False)
         self._model_download_combo_box.setEnabled(False)
 
+        slicing = None
         if self._run_on_visible_only_cb.checkState():
-
             # what part of the input image is currently visible?
             slicing = self._get_visible_slicing()
-            # crop the visible part
-            data = input_layer.data[slicing]
-        else:
-            slicing = None
-            data = input_layer.data
 
-        def transform_results(details, slicing):
+        def transform_results(labels, details, slicing, shape):
             if slicing is not None:
                 offset = np.array([slicing[0].start, slicing[1].start])
+                full_labels = np.zeros(shape, dtype=labels.dtype)
+                full_labels[slicing] = labels
+                labels = full_labels
             else:
                 offset = np.array([0, 0])
-            print(details.keys())
+
             coords = details["coord"]
             coords_list = []
             for i in range(coords.shape[0]):
-
                 coords_list.append(knots_from_coefs(coords[i, ...].T) + offset)
-            return coords_list
+            return labels, coords_list
 
         @thread_worker(worker_class=GeneratorWorker)
-        def work_function(data, slicing, **kwargs):
+        def work_function(model_meta, data, slicing, **kwargs):
             def progress_callback(name, progress):
                 self.worker.extra_signals.progress.emit(name, int(progress))
 
+            # spatial shape (ignoring potential color channels)
+            shape = data.shape[0:2]
+            if slicing is not None:
+                data = input_layer.data[slicing]
+
             labels, details = predict(
-                data, progress_callback=progress_callback, **kwargs
+                data,
+                progress_callback=progress_callback,
+                model_meta=model_meta,
+                **kwargs,
             )
-            coords_list = transform_results(details, slicing)
+            labels, coords_list = transform_results(
+                labels, details, slicing, shape
+            )
 
             yield labels, coords_list
 
             return
 
         self.worker = work_function(
-            data,
-            slicing,
+            model_meta=self._model_download_combo_box.getModelMeta(),
+            data=input_layer.data,
+            slicing=slicing,
             model_path=self._get_model_path(),
             **self._build_parameters(),
         )
