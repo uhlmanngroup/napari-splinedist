@@ -14,7 +14,6 @@ def make_labels_colormap(labels):
     # a minimum size of 2x4
     colormap = np.random.random(size=(mx + 2, 4))
     colormap[0, :] = 0.0
-    print(colormap)
     if mx > 0:
         colormap[1:, 3] = 1.0
     return colormap
