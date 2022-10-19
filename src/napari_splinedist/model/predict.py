@@ -4,6 +4,7 @@
 #     absolute_import,
 #     division,
 # )
+import functools
 import json
 from pathlib import Path
 
@@ -12,9 +13,10 @@ from csbdeep.utils import normalize
 from splinedist.utils import grid_generator, phi_generator
 
 from .._logging import logger
+from ..exceptions import PredictionException
 
 
-# @functools.lru_cache(maxsize=1)
+@functools.lru_cache(maxsize=1)
 def build_model(model_path, grid=(2, 2)):
 
     from splinedist.models import Config2D, SplineDist2D
@@ -39,11 +41,6 @@ def build_model(model_path, grid=(2, 2)):
     return SplineDist2D(None, name=model_path.name, basedir=str(basedir))
 
 
-class PredictionError(Exception):
-    def __init__(self, message=None):
-        super().__init__(message)
-
-
 def predict(
     image,
     model_path,
@@ -64,18 +61,17 @@ def predict(
     elif image.ndim == 3:
         in_channels = image.shape[2]
 
-    model_in_channels = model_meta["in_channels"]
+    model_in_channels = model_meta.in_channels
     # are they matching with the models expected
     # number of channels?
     if in_channels != model_in_channels:
         if model_in_channels == 1:
             image = np.sum(image, axis=2) / in_channels
         else:
-            raise PredictionError(
-                f"{in_channels} != {model_meta['in_channels']}"
+            raise PredictionException(
+                f"{in_channels} != {model_meta.in_channels}"
             )
 
-    print("model_path", model_path)
     # if the image has an integral dtype, we normalize
     # by dividing with the max value for that dtype
     # even when normalize_image == False
@@ -92,7 +88,7 @@ def predict(
 
     if invert_image:
         if in_channels > 1:
-            raise PredictionError("only gray image can be inverted")
+            raise PredictionException("only gray image can be inverted")
         image = image.max() - image
 
     axis_norm = (0, 1)

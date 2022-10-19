@@ -1,0 +1,61 @@
+{
+    "models":
+    [
+        {
+            "name": "bbbc038",
+            "in_channels": 1,
+            "preview_image": "bbbc038.png",
+            "sources":
+            [
+                {
+                    "source_type": "url",
+                    "n_control_points": 6,
+                    "source": "https://zenodo.org/record/7194989/files/bbbc038_6.zip?download=1"
+                },
+                {
+                    "source_type": "url",
+                    "n_control_points": 8,
+                    "source": "https://zenodo.org/record/7194995/files/bbbc038_8.zip?download=1"
+                },
+                {
+                    "source_type": "url",
+                    "n_control_points": 10,
+                    "source": "https://zenodo.org/record/7195003/files/bbbc038_10.zip?download=1"
+                },
+                {
+                    "source_type": "url",
+                    "n_control_points": 16,
+                    "source": "https://zenodo.org/record/7195001/files/bbbc038_16.zip?download=1"
+                }
+            ]
+        },
+        {
+            "name": "conic",
+            "in_channels": 3,
+            "preview_image": "conic.png",
+            "sources":
+            [
+                {
+                    "source_type": "url",
+                    "n_control_points": 6,
+                    "source": "https://zenodo.org/record/7195005/files/conic_6.zip?download=1"
+                },
+                {
+                    "source_type": "url",
+                    "n_control_points": 8,
+                    "source": "https://zenodo.org/record/7195007/files/conic_8.zip?download=1"
+                },
+                {
+                    "source_type": "url",
+                    "n_control_points": 10,
+                    "source": "https://zenodo.org/record/7195011/files/conic_10.zip?download=1"
+                },
+                {
+                    "source_type": "url",
+                    "n_control_points": 16,
+                    "source": "https://zenodo.org/record/7195013/files/conic_16.zip?download=1"
+                }
+            ]
+        }
+    ]
+}

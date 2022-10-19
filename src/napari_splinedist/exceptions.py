@@ -1,14 +1,16 @@
 class NoInputImageException(Exception):
     def __init__(
         self,
-        message="SplineDist Error: Input image is missing!\nAt least one image layer must be available",
+        message="SplineDist Error: Input image is missing!",
     ):
         super().__init__(message)
 
 
-class NoLoadedModelException(Exception):
-    def __init__(
-        self,
-        message="SplineDist Error: Loaded model path is missing!\nSet directory approriate and rerun",
-    ):
+class PredictionException(Exception):
+    def __init__(self, message=None):
+        super().__init__(message)
+
+
+class WrongSourceTypeExpcetion(Exception):
+    def __init__(self, message=None):
         super().__init__(message)
