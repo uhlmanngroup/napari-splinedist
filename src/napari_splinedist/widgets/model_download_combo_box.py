@@ -48,12 +48,13 @@ class ModelDownloadComboBox(QWidget):
 
                 self._models_meta = models_meta
 
-                names = [meta["name"] for meta in self._models_meta]
+                names = [meta.name for meta in self._models_meta]
                 self._name_combo_box.addItems(names)
 
                 self._n_ctrl_points_combo_box.clear()
                 n_ctrl_names = [
-                    str(k) for k in self.getModelMeta()["urls"].keys()
+                    str(source_meta.n_control_points)
+                    for source_meta in self.getModelMeta().sources
                 ]
                 self._n_ctrl_points_combo_box.addItems(n_ctrl_names)
 
@@ -89,12 +90,10 @@ class ModelDownloadComboBox(QWidget):
         return self._models_meta[index]
 
     def _n_ctrl_points(self):
-        return list(self.getModelMeta()["urls"].keys())[
-            self._n_ctrl_points_combo_box.currentIndex()
-        ]
+        return self._current_source().n_control_points
 
-    def _current_url(self):
-        return list(self.getModelMeta()["urls"].values())[
+    def _current_source(self):
+        return self.getModelMeta().sources[
             self._n_ctrl_points_combo_box.currentIndex()
         ]
 
@@ -120,7 +119,8 @@ class ModelDownloadComboBox(QWidget):
         with QSignalBlocker(self._n_ctrl_points_combo_box):
             self._n_ctrl_points_combo_box.clear()
             n_ctrl_names = [
-                str(k) for k in self.getModelMeta(index)["urls"].keys()
+                str(source_meta.n_control_points)
+                for source_meta in self.getModelMeta(index).sources
             ]
             self._n_ctrl_points_combo_box.addItems(n_ctrl_names)
 
@@ -133,7 +133,6 @@ class ModelDownloadComboBox(QWidget):
         pass
 
     def _on_worker_finished(self):
-        print("finished", self.worker.is_running, self.worker.abort_requested)
         if self.worker.abort_requested:
             self._restart_button.setEnabled(True)
         self._name_combo_box.setEnabled(True)
@@ -144,16 +143,19 @@ class ModelDownloadComboBox(QWidget):
         raise e
 
     def _on_worker_yielded_results(self, path):
-        sample_image_path = (
-            Path(self._current_model_path())
-            / f"{self.getModelMeta()['name']}.png"
-        )
-        if sample_image_path.exists():
-            img = QImage()
-            img.load(str(sample_image_path))
-            img = img.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio)
-            self._sample_image_label.setPixmap(QPixmap.fromImage(img))
-            self.model_availablity_changed.emit(True)
+        self.model_availablity_changed.emit(True)
+
+        if self.getModelMeta().preview_image is not None:
+
+            sample_image_path = (
+                Path(self._current_model_path())
+                / self.getModelMeta().preview_image
+            )
+            if sample_image_path.exists():
+                img = QImage()
+                img.load(str(sample_image_path))
+                img = img.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio)
+                self._sample_image_label.setPixmap(QPixmap.fromImage(img))
 
         else:
             self._sample_image_label.clear()
@@ -166,10 +168,14 @@ class ModelDownloadComboBox(QWidget):
         self._progress_widget.setValue(int(p))
 
     def _current_model_path(self):
-
-        name = f"{self.getModelMeta()['name']}_{self._n_ctrl_points()}"
-        path = self._download_dir / name
-        return path
+        source = self._current_source()
+        source_type = source.source_type
+        if source_type == "url":
+            name = f"{self.getModelMeta().name}_{self._n_ctrl_points()}"
+            path = self._download_dir / name
+            return path
+        elif source_type == "path":
+            return source.source
 
     def _on_model_changed(self):
 
@@ -183,37 +189,44 @@ class ModelDownloadComboBox(QWidget):
         self._sample_image_label.clear()
 
         @thread_worker(worker_class=DownloadWorker, start_thread=False)
-        def work_function(url):
+        def work_function(source):
 
-            base_name = (
-                f"{self.getModelMeta()['name']}_{self._n_ctrl_points()}"
-            )
-            name = f"{base_name}.zip"
-            zip_path = self._download_dir / name
+            if source.source_type == "url":
+                base_name = (
+                    f"{self.getModelMeta().name}_{self._n_ctrl_points()}"
+                )
+                name = f"{base_name}.zip"
+                zip_path = self._download_dir / name
+                unzipped_path = self._download_dir / base_name
 
-            unzipped_path = self._download_dir / base_name
+                if unzipped_path.exists():
+                    self._on_worker_progress(100)
+                    self.worker.extra_signals.resulted.emit(unzipped_path)
+                else:
 
-            if unzipped_path.exists():
+                    def status(progress, total, downloaded):
+                        self.worker.extra_signals.progress.emit(
+                            int(progress), total, downloaded
+                        )
+
+                    # the empty yield allows us to cancel the download
+                    for _ in download_file(source.source, zip_path, status):
+                        yield
+
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
+                        zip_ref.extractall(self._download_dir)
+
+                    # yield unzipped_path
+                    self.worker.extra_signals.resulted.emit(unzipped_path)
+            elif source.source_type == "path":
                 self._on_worker_progress(100)
-                self.worker.extra_signals.resulted.emit(unzipped_path)
-            else:
-
-                def status(progress, total, downloaded):
-                    self.worker.extra_signals.progress.emit(
-                        int(progress), total, downloaded
+                if not Path(source.source).exists():
+                    raise FileNotFoundError(
+                        f"source directory `{source.source}` does not exist"
                     )
+                self.worker.extra_signals.resulted.emit(source.source)
 
-                # the empty yield allows us to cancel the download
-                for _ in download_file(url, zip_path, status):
-                    yield
-
-                with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                    zip_ref.extractall(self._download_dir)
-
-                # yield unzipped_path
-                self.worker.extra_signals.resulted.emit(unzipped_path)
-
-        self.worker = work_function(self._current_url())
+        self.worker = work_function(self._current_source())
         self.worker.started.connect(self._on_worker_started)
         self.worker.finished.connect(self._on_worker_finished)
         self.worker.errored.connect(self._on_worker_errored)

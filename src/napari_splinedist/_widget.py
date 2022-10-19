@@ -8,14 +8,13 @@ TODOS:
     * pass more parameters
 
 """
-import json
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-import appdirs
 import numpy as np
 from napari.layers import Image as ImageLayer
 from napari.layers.shapes.shapes import Mode
+from napari.qt.threading import GeneratorWorker as NapariGeneratorWorker
 from napari.qt.threading import thread_worker
 from napari_splineit.interpolation import (
     interpolator_factory as splineit_interpolator_factory,
@@ -26,18 +25,19 @@ from napari_splineit.layer.layer_factory import (
 )
 from napari_splineit.widgets.double_spin_slider import DoubleSpinSlider
 from napari_splineit.widgets.spin_slider import SpinSlider
-from qtpy.QtCore import Signal
-from qtpy.QtGui import QColor
+from qtpy.QtCore import QObject, Signal
+from qtpy.QtGui import QColor, QPixmap
 from qtpy.QtWidgets import (
     QCheckBox,
     QFormLayout,
-    QFrame,
+    QLabel,
     QPushButton,
-    QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
 from ._logging import logger
+from .config.config import APPDIR, CONFIG
 from .exceptions import NoInputImageException
 from .model.predict import predict
 from .utils.colormap import make_labels_colormap
@@ -45,69 +45,27 @@ from .widgets.color_picker_push_button import ColorPicklerPushButton
 from .widgets.image_layer_combo_box import ImageLayerComboBox
 from .widgets.model_download_combo_box import ModelDownloadComboBox
 from .widgets.progress_widget import ProgressWidget
-from .worker import GeneratorWorker
 
-# from qtpy.QtGui import QApplication
-# from qtpy.QtCore import Signal
+HEADER = """<h1><strong>napari-splinedist</strong></h1>
+<p><strong>
+Cite This:
+</strong><strong>
+<a href="https://ieeexplore.ieee.org/abstract/document/9433928">
+Splinedist: Automated Cell Segmentation With Spline Curves</a></strong></p>
+"""
 
-if TYPE_CHECKING:
-    pass
-
-
-APP_NAME = "NapariSplineDist"
-APP_AUTHOR = "NapariSplineDistAuthors"
-SPLINEIT_APPDIR = Path(appdirs.user_data_dir(APP_NAME, APP_AUTHOR))
-SPLINEIT_APPDIR.mkdir(exist_ok=True, parents=True)
-META_PATH = SPLINEIT_APPDIR / "models_meta.json"
-
-DEFAULT_MODEL_META = [
-    {
-        "name": "bbbc038",
-        "in_channels": 1,
-        "urls": {
-            6: "https://zenodo.org/record/7194989/files/bbbc038_6.zip?download=1",
-            8: "https://zenodo.org/record/7194995/files/bbbc038_8.zip?download=1",
-            10: "https://zenodo.org/record/7195003/files/bbbc038_10.zip?download=1",
-            16: "https://zenodo.org/record/7195001/files/bbbc038_16.zip?download=1",
-        },
-    },
-    {
-        "name": "conic",
-        "in_channels": 3,
-        "urls": {
-            6: "https://zenodo.org/record/7195005/files/conic_6.zip?download=1",
-            8: "https://zenodo.org/record/7195007/files/conic_8.zip?download=1",
-            10: "https://zenodo.org/record/7195011/files/conic_10.zip?download=1",
-            16: "https://zenodo.org/record/7195013/files/conic_16.zip?download=1",
-        },
-    },
-]
-
-if not META_PATH.exists():
-    print("store meta")
-
-    with open(META_PATH, "w") as f:
-        json.dump(DEFAULT_MODEL_META, f, indent=4)
-
-with open(META_PATH) as f:
-    MODEL_META = json.load(f)
+# due to the uglyness, the logo is not yet used
+THIS_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
+LOGO = THIS_DIR / "logo" / "logo.png"
 
 
-def shorten_path(file_path, length):
-    """Split the path into separate parts, select the last
-    'length' elements and join them again"""
-    return str(Path(*Path(file_path).parts[-length:]))
+class GeneratorWorker(NapariGeneratorWorker):
+    class ExtraSignals(QObject):
+        progress = Signal(str, int)
 
-
-def bar():
-    f = QFrame()
-    f.setStyleSheet("background-color: #c0c0c0;")
-    f.setFrameShape(QFrame.HLine)
-    f.setFixedHeight(1)
-    f.setFrameShadow(QFrame.Sunken)
-    f.setLineWidth(1)
-    f.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    return f
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.extra_signals = GeneratorWorker.ExtraSignals()
 
 
 class SplineDistWidget(QWidget):
@@ -126,7 +84,7 @@ class SplineDistWidget(QWidget):
         self._init_ui(edge_color=edge_color, face_color=face_color)
         self._connect_events()
 
-        self._model_download_combo_box.setModelsMeta(MODEL_META)
+        self._model_download_combo_box.setModelsMeta(CONFIG.models)
 
         self.worker = None
         self.thread = None
@@ -140,11 +98,20 @@ class SplineDistWidget(QWidget):
 
     def _init_ui(self, edge_color, face_color):
 
+        # layouts
+        box = QVBoxLayout()
         form = QFormLayout()
-        self.setLayout(form)
+        self.setLayout(box)
+
         # fmt: off
+        self._header_label = QLabel(HEADER)
+        self._header_label .setOpenExternalLinks(True)
+
+        self._logo_label = QLabel()
+        self._logo_label.setPixmap(QPixmap(str(LOGO)))
+
         self._input_image_combo_box = ImageLayerComboBox(self.viewer)
-        self._model_download_combo_box = ModelDownloadComboBox(SPLINEIT_APPDIR)
+        self._model_download_combo_box = ModelDownloadComboBox(APPDIR)
         self._select_model_button = QPushButton("Select model")
         self._select_model_button.setEnabled(False)
         self._normalize_img_cb = QCheckBox()
@@ -154,7 +121,7 @@ class SplineDistWidget(QWidget):
         self._invert_img_cb = QCheckBox()
         self._invert_img_cb.setChecked(False)
         self._prob_thresh_slider = DoubleSpinSlider([0, 1.0], 0.5)
-        self._nms_thresh_slider =  DoubleSpinSlider([0, 1.0], 0.5)
+        self._nms_thresh_slider = DoubleSpinSlider([0, 1.0], 0.5)
         self._run_on_visible_only_cb = QCheckBox()
         self._run_on_visible_only_cb.setChecked(False)
 
@@ -174,6 +141,10 @@ class SplineDistWidget(QWidget):
 
         self._edit_button = QPushButton("Edit")
         # fmt: on
+
+        # box.addWidget(self._logo_label)
+        box.addWidget(self._header_label)
+        box.addLayout(form)
 
         form.addRow("Input Image", self._input_image_combo_box)
         form.addRow("Select Model", self._model_download_combo_box)
@@ -283,7 +254,6 @@ class SplineDistWidget(QWidget):
         i_labels = self.viewer.layers.index(self.labels_layer)
         i_ctrl = self.viewer.layers.index(self.ctrl_layer)
         i_interpolated = self.viewer.layers.index(self.interpolated_layer)
-        print(i_labels, i_ctrl, i_interpolated)
 
         if self._last_results is not None:
             self._edit_button.setEnabled(False)
@@ -323,10 +293,8 @@ class SplineDistWidget(QWidget):
         self._progress_widget.setProgress(name, progress)
 
     def _on_worker_errored(self, e):
-        print("HANDLING ERR")
-        # self._progress_widget.setProgress("ERRORED!", 100)
-        # self._on_worker_finished()
-        # raise RuntimeError(e)
+        self._on_worker_finished()
+        raise RuntimeError(e)
 
     def _get_input_layer(self):
         if self._input_image_combo_box.count() == 0:
