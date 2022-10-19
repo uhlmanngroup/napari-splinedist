@@ -1,5 +1,9 @@
 include LICENSE
 include README.md
 
+include src/napari_splinedist/sample_data/conic.png
+include src/napari_splinedist/sample_data/bbbc038.png
+
+
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
