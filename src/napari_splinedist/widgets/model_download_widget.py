@@ -19,7 +19,7 @@ from ..utils.download_file import download_file
 
 class DownloadWorker(NapariGeneratorWorker):
     class ExtraSignals(QObject):
-        progress = Signal(int, int, int)
+        progress = Signal(float, int, int)
         resulted = Signal(object)
 
     def __init__(self, *args, **kwargs):
@@ -27,8 +27,9 @@ class DownloadWorker(NapariGeneratorWorker):
         self.extra_signals = DownloadWorker.ExtraSignals()
 
 
-class ModelDownloadComboBox(QWidget):
+class ModelDownloadWidget(QWidget):
     model_availablity_changed = Signal(bool)
+    progress = Signal(float)
 
     def __init__(self, download_dir):
         super().__init__()
@@ -162,10 +163,11 @@ class ModelDownloadComboBox(QWidget):
 
     def _on_worker_progress(self, p, t=None, d=None):
         if t is not None and d is not None:
-            self._progress_widget.setFormat(f"{p}% ({d}/ {t})")
+            self._progress_widget.setFormat(f"{p:.2f}% ({d}/ {t})")
         if p >= 100:
             self._progress_widget.setFormat("model is ready")
         self._progress_widget.setValue(int(p))
+        self.progress.emit(p)
 
     def _current_model_path(self):
         source = self._current_source()
@@ -206,7 +208,7 @@ class ModelDownloadComboBox(QWidget):
 
                     def status(progress, total, downloaded):
                         self.worker.extra_signals.progress.emit(
-                            int(progress), total, downloaded
+                            progress, total, downloaded
                         )
 
                     # the empty yield allows us to cancel the download

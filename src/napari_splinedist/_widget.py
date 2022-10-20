@@ -8,8 +8,6 @@ TODOS:
     * pass more parameters
 
 """
-import os
-from pathlib import Path
 
 import numpy as np
 from napari.layers import Image as ImageLayer
@@ -26,10 +24,11 @@ from napari_splineit.layer.layer_factory import (
 from napari_splineit.widgets.double_spin_slider import DoubleSpinSlider
 from napari_splineit.widgets.spin_slider import SpinSlider
 from qtpy.QtCore import QObject, Signal
-from qtpy.QtGui import QColor, QPixmap
+from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QCheckBox,
     QFormLayout,
+    QGridLayout,
     QLabel,
     QPushButton,
     QVBoxLayout,
@@ -43,20 +42,9 @@ from .model.predict import predict
 from .utils.colormap import make_labels_colormap
 from .widgets.color_picker_push_button import ColorPicklerPushButton
 from .widgets.image_layer_combo_box import ImageLayerComboBox
-from .widgets.model_download_combo_box import ModelDownloadComboBox
+from .widgets.model_download_widget import ModelDownloadWidget
 from .widgets.progress_widget import ProgressWidget
-
-HEADER = """<h1><strong>napari-splinedist</strong></h1>
-<p><strong>
-Cite This:
-</strong><strong>
-<a href="https://ieeexplore.ieee.org/abstract/document/9433928">
-Splinedist: Automated Cell Segmentation With Spline Curves</a></strong></p>
-"""
-
-# due to the uglyness, the logo is not yet used
-THIS_DIR = Path(os.path.dirname(os.path.realpath(__file__)))
-LOGO = THIS_DIR / "logo" / "logo.png"
+from .widgets.rotating_logo_widget import RotatingLogoWidget
 
 
 class GeneratorWorker(NapariGeneratorWorker):
@@ -100,18 +88,30 @@ class SplineDistWidget(QWidget):
 
         # layouts
         box = QVBoxLayout()
+        grid = QGridLayout()
         form = QFormLayout()
         self.setLayout(box)
 
-        # fmt: off
-        self._header_label = QLabel(HEADER)
-        self._header_label .setOpenExternalLinks(True)
+        self._header_label = QLabel(
+            """
+            <h1><strong>napari-splinedist</strong></h1>
+            <p><strong>
+            Cite This:
+            </strong><strong>
+            <a href="https://ieeexplore.ieee.org/abstract/document/9433928">
+            Splinedist: Automated Cell Segmentation With Spline Curves
+            </a></strong></p>
+        """
+        )
+        self._header_label.setOpenExternalLinks(True)
+        self._logo_widget = RotatingLogoWidget()
 
-        self._logo_label = QLabel()
-        self._logo_label.setPixmap(QPixmap(str(LOGO)))
+        grid.addWidget(self._logo_widget, 0, 0)
+        grid.addWidget(self._header_label, 0, 1)
+        # grid.addWidget(self._logo_bar_right,0,2)
 
         self._input_image_combo_box = ImageLayerComboBox(self.viewer)
-        self._model_download_combo_box = ModelDownloadComboBox(APPDIR)
+        self._model_download_combo_box = ModelDownloadWidget(APPDIR)
         self._select_model_button = QPushButton("Select model")
         self._select_model_button.setEnabled(False)
         self._normalize_img_cb = QCheckBox()
@@ -129,21 +129,17 @@ class SplineDistWidget(QWidget):
         self._n_tiles_y = SpinSlider([1, 10], 1)
 
         self._edge_color_sel = ColorPicklerPushButton(
-            color=edge_color,
-            with_alpha=True,
-            tracking=True)
+            color=edge_color, with_alpha=True, tracking=True
+        )
         self._face_color_sel = ColorPicklerPushButton(
-            color=face_color,
-            with_alpha=True,
-            tracking=True)
+            color=face_color, with_alpha=True, tracking=True
+        )
         self._run_button = QPushButton("run")
         self._progress_widget = ProgressWidget(self)
 
         self._edit_button = QPushButton("Edit")
-        # fmt: on
 
-        # box.addWidget(self._logo_label)
-        box.addWidget(self._header_label)
+        box.addLayout(grid)
         box.addLayout(form)
 
         form.addRow("Input Image", self._input_image_combo_box)
@@ -193,6 +189,12 @@ class SplineDistWidget(QWidget):
         self._model_download_combo_box.model_availablity_changed.connect(
             model_availablity_changed
         )
+
+        def on_progress(p):
+            self._logo_widget.setValue(p)
+            # self._logo_bar_right.setValue(p)
+
+        self._model_download_combo_box.progress.connect(on_progress)
 
     def _on_edge_color_changed(self, color):
         if self.interpolated_layer is not None:

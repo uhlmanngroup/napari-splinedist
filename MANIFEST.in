@@ -3,7 +3,7 @@ include README.md
 
 include src/napari_splinedist/sample_data/conic.png
 include src/napari_splinedist/sample_data/bbbc038.png
-include src/napari_splinedist/logo/logo.png
+include src/napari_splinedist/logo/logo_white_small.svg
 
 include src/napari_splinedist/config/napari_splinedist_config.json
 

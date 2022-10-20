@@ -20,7 +20,7 @@ def download_file(url, path, status_callback, chunk_size=4096):
         for data in response.iter_content(chunk_size=chunk_size):
             dl += len(data)
             chunks.append(data)
-            percent = int(100.0 * dl / total_length)
+            percent = 100.0 * dl / total_length
             status_callback(percent, total_length, dl)
 
             yield
