@@ -1,19 +1,11 @@
-"""
-TODOS:
-    * splineit layers cannot be reused after user deleted them
-    * add button to override/not-override exisiting layers
-    * add advanced config?
-    * implement actual model loading
-    * implement configurage sub-data prediction
-    * pass more parameters
-
-"""
+from pathlib import Path
 
 import numpy as np
 from napari.layers import Image as ImageLayer
 from napari.layers.shapes.shapes import Mode
 from napari.qt.threading import GeneratorWorker as NapariGeneratorWorker
 from napari.qt.threading import thread_worker
+from napari_splineit._writer import write_splineit
 from napari_splineit.interpolation import (
     interpolator_factory as splineit_interpolator_factory,
 )
@@ -27,6 +19,7 @@ from qtpy.QtCore import QObject, Signal
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QFormLayout,
     QGridLayout,
     QLabel,
@@ -84,6 +77,8 @@ class SplineDistWidget(QWidget):
         # last results
         self._last_results = None
 
+        self._ctrl_layer_is_up_to_date = False
+
     def _init_ui(self, edge_color, face_color):
 
         # layouts
@@ -136,7 +131,7 @@ class SplineDistWidget(QWidget):
         )
         self._run_button = QPushButton("run")
         self._progress_widget = ProgressWidget(self)
-
+        self._save_button = QPushButton("Save")
         self._edit_button = QPushButton("Edit")
 
         box.addLayout(grid)
@@ -157,9 +152,10 @@ class SplineDistWidget(QWidget):
         form.addRow("Face Color", self._face_color_sel)
         form.addRow("Run", self._run_button)
         form.addRow("Progress", self._progress_widget)
-
+        form.addRow("Save", self._save_button)
         form.addRow("Edit", self._edit_button)
         self._edit_button.setEnabled(False)
+        self._save_button.setEnabled(False)
 
     def _connect_events(self):
 
@@ -196,6 +192,50 @@ class SplineDistWidget(QWidget):
 
         self._model_download_combo_box.progress.connect(on_progress)
 
+        self._save_button.clicked.connect(self._on_save)
+
+    def _on_save(self):
+        dlg = QFileDialog()
+        dlg.setFileMode(QFileDialog.AnyFile)
+        dlg.setAcceptMode(QFileDialog.AcceptSave)
+        dlg.setDefaultSuffix("splineit")
+        dlg.setNameFilters(["SPLINEIT (*.splineit)"])
+        if dlg.exec_():
+            filename = Path(dlg.selectedFiles()[0])
+
+            filename_json = Path(filename)
+
+            # if there is an up to date ctrl-layer we
+            # need to take the results from there since the user might
+            # have changed something!
+            if self._ctrl_layer_is_up_to_date and self.ctrl_layer is not None:
+
+                write_splineit(
+                    path=dlg.selectedFiles()[0],
+                    data=self.ctrl_layer.data,
+                    interpolator=self.ctrl_layer.interpolator,
+                    z_index=self.ctrl_layer.z_index,
+                    edge_color=self.interpolated_layer.edge_color,
+                    face_color=self.interpolated_layer.face_color,
+                    edge_width=self.interpolated_layer.edge_width,
+                    opacity=self.interpolated_layer.opacity,
+                )
+            else:
+                n_polygons = len(self._last_results[1])
+                edge_color = [float(c) for c in self._edge_color_sel.asArray()]
+                face_color = [float(c) for c in self._face_color_sel.asArray()]
+                edge_color = [edge_color] * n_polygons
+                face_color = [face_color] * n_polygons
+
+                write_splineit(
+                    path=filename_json,
+                    interpolator=self._interpolator_factory(),
+                    data=self._last_results[1],
+                    z_index=range(n_polygons),
+                    edge_color=edge_color,
+                    face_color=face_color,
+                )
+
     def _on_edge_color_changed(self, color):
         if self.interpolated_layer is not None:
             arr = self._edge_color_sel.asArray()
@@ -229,19 +269,22 @@ class SplineDistWidget(QWidget):
     def _on_worker_finished(self):
         self._run_button.setEnabled(True)
         self._edit_button.setEnabled(True)
+        self._save_button.setEnabled(True)
         self._model_download_combo_box.setEnabled(True)
 
+    def _interpolator_factory(self):
+        return splineit_interpolator_factory(name="UhlmannSplines")
+
     def _create_empty_result_layers(self):
-        interpolator = splineit_interpolator_factory(name="UhlmannSplines")
         interpolated_layer, ctrl_layer = splineit_layer_factory(
-            viewer=self.viewer, interpolator=interpolator
+            viewer=self.viewer, interpolator=self._interpolator_factory()
         )
         self.interpolated_layer = interpolated_layer
         self.ctrl_layer = ctrl_layer
         self.labels_layer = None
 
     def _on_edit_button(self):
-
+        self._ctrl_layer_is_up_to_date = True
         # make sure the interpolated layers are "above" the
         # labels layer
         i_labels = self.viewer.layers.index(self.labels_layer)
@@ -321,7 +364,7 @@ class SplineDistWidget(QWidget):
         )
 
     def _on_run(self):
-
+        self._ctrl_layer_is_up_to_date = False
         input_layer = self._get_input_layer()
         logger.info(f"run on layer {input_layer.name}")
 
