@@ -23,7 +23,6 @@ class ImageLayerComboBox(QComboBox):
 
     def _on_layer_inserted(self, event):
         layer = event.value
-        print("inserterd layer", layer)
         if isinstance(layer, ImageLayer):
             layer.events.name.connect(self._rebuild)
             self._rebuild()
@@ -34,7 +33,6 @@ class ImageLayerComboBox(QComboBox):
         if self.count() > 0:
             current_layer = self._layer_mapping[self.currentIndex()]
         self.clear()
-        layers = self._viewer.layers
         index = 0
         current_index = None
         for layer in self._viewer.layers:

@@ -197,10 +197,12 @@ class SplineDistWidget(QWidget):
     def _on_save(self):
         dlg = QFileDialog()
         dlg.setFileMode(QFileDialog.AnyFile)
+        dlg.setAcceptMode(QFileDialog.AcceptSave)
         dlg.setDefaultSuffix("splineit")
-        filename = str(dlg.getSaveFileName()[0])
-        print(filename)
-        if filename is not None and filename != "":
+        dlg.setNameFilters(["SPLINEIT (*.splineit)"])
+        if dlg.exec_():
+            filename = Path(dlg.selectedFiles()[0])
+
             filename_json = Path(filename)
 
             # if there is an up to date ctrl-layer we
@@ -209,7 +211,7 @@ class SplineDistWidget(QWidget):
             if self._ctrl_layer_is_up_to_date and self.ctrl_layer is not None:
 
                 write_splineit(
-                    path=filename_json,
+                    path=dlg.selectedFiles()[0],
                     data=self.ctrl_layer.data,
                     interpolator=self.ctrl_layer.interpolator,
                     z_index=self.ctrl_layer.z_index,
