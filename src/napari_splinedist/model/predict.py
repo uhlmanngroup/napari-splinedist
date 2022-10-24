@@ -16,6 +16,8 @@ from .._logging import logger
 from ..exceptions import PredictionException
 
 
+# to speed up thye building of the model,
+# we cache this
 @functools.lru_cache(maxsize=1)
 def build_model(model_path, grid=(2, 2)):
 
@@ -86,6 +88,7 @@ def predict(
     if progress_callback is not None:
         progress_callback("build-model", 100)
 
+    # should the image be inverted (only for gray)
     if invert_image:
         if in_channels > 1:
             raise PredictionException("only gray image can be inverted")
@@ -97,7 +100,8 @@ def predict(
         img = normalize(image, percentile_low, percentile_high, axis=axis_norm)
     else:
         img = image
-        # img = normalize(image, 0.0, 100.0, axis=axis_norm)
+
+    # run prediction
     labels, details = model.predict_instances(
         img,
         # progress_callback=progress_callback,
