@@ -33,7 +33,7 @@ from ._logging import logger
 from .config.config import APPDIR, CONFIG
 from .exceptions import NoInputImageException
 from .model.predict import predict
-from .utils.colormap import make_labels_colormap
+from .utils.colormap import make_colormap
 from .widgets.color_picker_push_button import ColorPicklerPushButton
 from .widgets.image_layer_combo_box import ImageLayerComboBox
 from .widgets.model_download_widget import ModelDownloadWidget
@@ -107,6 +107,11 @@ class SplineDistWidget(QWidget):
         # the ctrl_layer / interpolated_layer
         # is only updte
         self._ctrl_layer_is_up_to_date = False
+
+        # colormap with inital size to avoid
+        # recomputation
+        self._colormap_capacity = 1000
+        self._colormap = make_colormap(mx=self._colormap_capacity)
 
     def _init_ui(self, edge_color, face_color):
         """Initialize UI components
@@ -229,6 +234,13 @@ class SplineDistWidget(QWidget):
         self._edit_button = QPushButton("Edit")
         self._edit_button.setEnabled(False)
 
+        # make the results editable splines
+        # (ie create / fill the splineit layers)
+        # this will be enabled once results are
+        # available
+        self._update_labels_button = QPushButton("UpdateLabels")
+        self._update_labels_button.setEnabled(False)
+
         # add all the widgets to the form widget
         form.addRow("Input Image", self._input_image_combo_box)
         form.addRow("Select Model", self._model_download_widget)
@@ -247,6 +259,7 @@ class SplineDistWidget(QWidget):
         form.addRow("Progress", self._progress_widget)
         form.addRow("Save", self._save_button)
         form.addRow("Edit", self._edit_button)
+        form.addRow("Update Labels", self._update_labels_button)
 
     def _connect_events(self):
         """connect the qt events
@@ -265,10 +278,10 @@ class SplineDistWidget(QWidget):
         def on_layer_removed(event):
             layer = event.value
             if layer == self.interpolated_layer or layer == self.ctrl_layer:
-                self.interpolated_layer = None
-                self.ctrl_layer = None
-            if layer == self.labels_layer:
+                self._update_labels_button.setEnabled(False)
+            elif layer == self.labels_layer:
                 self.labels_layer = None
+                self._update_labels_button.setEnabled(False)
 
         self.viewer.layers.events.removed.connect(on_layer_removed)
 
@@ -302,6 +315,23 @@ class SplineDistWidget(QWidget):
 
         # save the results
         self._save_button.clicked.connect(self._on_save)
+
+        # when users edit the splines in the splineit layer,
+        # one can update the pixel layer to follow the splines
+        def on_update_labels():
+            logger.info("update labels")
+            if (
+                self.interpolated_layer is not None
+                and self.labels_layer is not None
+            ):
+                input_data_shape = self._get_input_layer().data.shape[0:2]
+                # we use naparis function to convert the splines to labels
+                labels = self.interpolated_layer.to_labels(
+                    labels_shape=input_data_shape
+                )
+                self.labels_layer.data = labels
+
+        self._update_labels_button.clicked.connect(on_update_labels)
 
     def _on_save(self):
         """this is triggered when the save button is pressed.
@@ -337,6 +367,16 @@ class SplineDistWidget(QWidget):
                     edge_width=self.interpolated_layer.edge_width,
                     opacity=self.interpolated_layer.opacity,
                 )
+
+                # we use naparis function to convert the splines to labels
+                labels = self.interpolated_layer.to_labels(
+                    labels_shape=self._last_results[0].shape
+                )
+                data_uint16 = labels.astype(np.uint16)
+                skimage_io.imsave(
+                    filename_png, data_uint16, check_contrast=False
+                )
+
             else:
                 # if there is no ctrl-layer we take the last results and
                 # save them
@@ -355,12 +395,14 @@ class SplineDistWidget(QWidget):
                     face_color=face_color,
                 )
 
-            # convert to uint16 st. we can save labels
-            # which are bigger that 255 in a png
-            data_uint16 = self._last_results[0].astype(np.uint16)
-            # save the image (we need to disable check_contrast,
-            # otherwise we get some false postive warnings)
-            skimage_io.imsave(filename_png, data_uint16, check_contrast=False)
+                # convert to uint16 st. we can save labels
+                # which are bigger that 255 in a png
+                data_uint16 = self._last_results[0].astype(np.uint16)
+                # save the image (we need to disable check_contrast,
+                # otherwise we get some false postive warnings)
+                skimage_io.imsave(
+                    filename_png, data_uint16, check_contrast=False
+                )
 
     def _on_edge_color_changed(self, color):
         """called when the user selects a new edge color.
@@ -428,8 +470,16 @@ class SplineDistWidget(QWidget):
         """
         self._run_button.setEnabled(True)
         self._edit_button.setEnabled(True)
+        self._update_labels_button.setEnabled(False)
+
         self._save_button.setEnabled(True)
         self._model_download_widget.setEnabled(True)
+
+        if self.ctrl_layer in self.viewer.layers:
+            self.viewer.layers.remove(self.ctrl_layer)
+
+        if self.interpolated_layer in self.viewer.layers:
+            self.viewer.layers.remove(self.interpolated_layer)
 
     def _create_empty_result_layers(self):
         """create the two splineit layers:
@@ -456,6 +506,13 @@ class SplineDistWidget(QWidget):
         """
 
         # mark the results shown as splineit layer as up-to-date
+
+        if self.ctrl_layer not in self.viewer.layers:
+            self.viewer.add_layer(self.ctrl_layer)
+
+        if self.interpolated_layer not in self.viewer.layers:
+            self.viewer.add_layer(self.interpolated_layer)
+
         self._ctrl_layer_is_up_to_date = True
 
         # make sure the interpolated layers are "above" the
@@ -476,6 +533,7 @@ class SplineDistWidget(QWidget):
             # (a new run of the splinedist will re-enable
             # this button)
             self._edit_button.setEnabled(False)
+            self._update_labels_button.setEnabled(True)
             labels, coords_list = self._last_results
 
             # this will update the splines in the splineit
@@ -487,6 +545,7 @@ class SplineDistWidget(QWidget):
                 current_edge_color=self._edge_color_sel.asArray(),
                 current_face_color=self._face_color_sel.asArray(),
             )
+            self.ctrl_layer.z_index = list(range(len(coords_list)))
 
         else:
             # this should actually never happend
@@ -511,12 +570,20 @@ class SplineDistWidget(QWidget):
 
         labels, coords_list = results
 
+        # get the max label
+        max_label = labels.max()
+
+        # check if the colormap is large enough
+        if max_label >= self._colormap_capacity:
+            # increase the color map size generousely
+            self._colormap_capacity = int(1.5 * max_label + 0.5)
+            self._colormap = make_colormap(self._colormap_capacity)
+
         # create or update the labels layer
         # the labels layer show the pixelized objects
         if self.labels_layer is None:
             self.labels_layer = ImageLayer(
-                data=labels,
-                colormap=make_labels_colormap(labels),
+                data=labels, colormap=self._colormap
             )
             self.viewer.add_layer(self.labels_layer)
         else:
@@ -598,10 +665,11 @@ class SplineDistWidget(QWidget):
         # show some info on the progress bar
         self._progress_widget.setProgress("prepare", 0)
 
-        # disable the run/edut/model-dl while we are running
+        # disable the run/edut/model-dl/update-labels while we are running
         self._run_button.setEnabled(False)
         self._edit_button.setEnabled(False)
         self._model_download_widget.setEnabled(False)
+        self._update_labels_button.setEnabled(False)
 
         # should we run only on the visible part of the input?
         slicing = None
