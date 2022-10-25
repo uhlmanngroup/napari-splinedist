@@ -181,7 +181,7 @@ class SplineDistWidget(QWidget):
 
         # quantiles sliders to normalize image
         self._low_quantile_slider = DoubleSpinSlider([0, 1], 0.01)
-        self._high_quantile_slider = DoubleSpinSlider([0, 100], 0.998)
+        self._high_quantile_slider = DoubleSpinSlider([0, 1], 0.998)
 
         # should image be inverted (default no)
         self._invert_img_cb = QCheckBox()
