@@ -3,10 +3,14 @@ import numpy as np
 
 def make_labels_colormap(labels):
     mx = labels.max()
+    return make_colormap(mx)
+
+
+def make_colormap(mx):
 
     # when labels are empty,ie only zeros, we would
     # only need a LUT of shape 1 X 4.
-    # but napari dislikes a LUT which has 1x4 shae
+    # but napari dislikes a LUT which has 1x4 shape
     # and is all zeros.
     # in  that case napari ignores the alpha channel
     # and the image is black instead of transparent.

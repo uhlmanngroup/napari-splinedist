@@ -2,6 +2,12 @@ from napari.layers import Image as ImageLayer
 from qtpy.QtWidgets import QComboBox
 
 
+# ComboBox which shows all napari layers
+# which are of type "ImageLayer"
+#
+# when layers are
+# inserted/deleted/renamed the
+# Combo box is auto updated
 class ImageLayerComboBox(QComboBox):
     def __init__(self, napari_viewer):
         super().__init__()

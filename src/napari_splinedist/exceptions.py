@@ -1,3 +1,5 @@
+# raised when we try to predict
+# without any input image
 class NoInputImageException(Exception):
     def __init__(
         self,
@@ -6,11 +8,7 @@ class NoInputImageException(Exception):
         super().__init__(message)
 
 
+# raised for failures while predicting
 class PredictionException(Exception):
-    def __init__(self, message=None):
-        super().__init__(message)
-
-
-class WrongSourceTypeExpcetion(Exception):
     def __init__(self, message=None):
         super().__init__(message)
