@@ -1,10 +1,10 @@
 # napari-splinedist
 
-[![License MIT](https://img.shields.io/pypi/l/napari-splinedist.svg?color=green)](https://github.com/DerThorsten/napari-splinedist/raw/main/LICENSE)
+[![License MIT](https://img.shields.io/pypi/l/napari-splinedist.svg?color=green)](https://github.com/uhlmanngroup/napari-splinedist/raw/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/napari-splinedist.svg?color=green)](https://pypi.org/project/napari-splinedist)
 [![Python Version](https://img.shields.io/pypi/pyversions/napari-splinedist.svg?color=green)](https://python.org)
-[![tests](https://github.com/DerThorsten/napari-splinedist/workflows/tests/badge.svg)](https://github.com/DerThorsten/napari-splinedist/actions)
-[![codecov](https://codecov.io/gh/DerThorsten/napari-splinedist/branch/main/graph/badge.svg)](https://codecov.io/gh/DerThorsten/napari-splinedist)
+[![tests](https://github.com/uhlmanngroup/napari-splinedist/workflows/tests/badge.svg)](https://github.com/uhlmanngroup/napari-splinedist/actions)
+[![codecov](https://codecov.io/gh/uhlmanngroup/napari-splinedist/branch/main/graph/badge.svg)](https://codecov.io/gh/uhlmanngroup/napari-splinedist)
 [![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-splinedist)](https://napari-hub.org/plugins/napari-splinedist)
 
 A napari SplineDist plugin
@@ -31,7 +31,7 @@ You can install `napari-splinedist` via [pip]:
 
 To install latest development version :
 
-    pip install git+https://github.com/DerThorsten/napari-splinedist.git
+    pip install git+https://github.com/uhlmanngroup/napari-splinedist.git
 
 
 ## Contributing
@@ -59,7 +59,7 @@ If you encounter any problems, please [file an issue] along with a detailed desc
 [Mozilla Public License 2.0]: https://www.mozilla.org/media/MPL/2.0/index.txt
 [cookiecutter-napari-plugin]: https://github.com/napari/cookiecutter-napari-plugin
 
-[file an issue]: https://github.com/DerThorsten/napari-splinedist/issues
+[file an issue]: https://github.com/uhlmanngroup/napari-splinedist/issues
 
 [napari]: https://github.com/napari/napari
 [tox]: https://tox.readthedocs.io/en/latest/

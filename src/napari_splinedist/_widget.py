@@ -655,7 +655,7 @@ class SplineDistWidget(QWidget):
         is done in this worker)
         """
 
-        # we mark the splineit layers as utdated
+        # we mark the splineit layers as outdated
         self._ctrl_layer_is_up_to_date = False
 
         # fetch the input data
