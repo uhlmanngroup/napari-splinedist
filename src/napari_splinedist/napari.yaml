@@ -20,4 +20,4 @@ contributions:
       key: unique_id.2
   widgets:
     - command: napari-splinedist.make_qwidget
-      display_name: Example QWidget
+      display_name: SplineDist-QWidget
