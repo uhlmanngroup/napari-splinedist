@@ -34,6 +34,11 @@ To install latest development version :
     pip install git+https://github.com/uhlmanngroup/napari-splinedist.git
 
 
+## Tutorial
+The tutorial videos of different functionalities of `napari-splinedist` can be found [here].
+![](https://github.com/uhlmanngroup/napari-splinedist/blob/main/resources/napari-splinedist.png)
+
+
 ## Contributing
 
 Contributions are very welcome. Tests can be run with [tox], please ensure
