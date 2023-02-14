@@ -36,7 +36,7 @@ To install latest development version :
 
 ## Tutorial
 The tutorial videos of different functionalities of `napari-splinedist` can be found [here].
-![](https://github.com/uhlmanngroup/napari-splinedist/blob/main/resources/napari-splinedist.png)
+[![](https://github.com/uhlmanngroup/napari-splinedist/blob/main/resources/napari-splinedist.png)](https://www.youtube.com/watch?v=1E5ucDkXfAo&list=PL1dfubro3sm3NBF8sQvlrIQ1EMHReVLSd)
 
 
 ## Contributing
