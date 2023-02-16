@@ -11,7 +11,7 @@ A napari SplineDist plugin
 
 ----------------------------------
 
-This [napari] plugin was generated with [Cookiecutter] using [@napari]'s [cookiecutter-napari-plugin] template.
+This [napari] plugin was generated with [Cookiecutter] using [@napari]'s [cookiecutter-napari-plugin] template. In addition to providing a GUI to carry out instance segmentation with SplineDist, it also allows you to interact with segmentation outlines and carry out manual edits. The output of splinedist-napari can be further edited with our companion plugin [splineit].
 
 <!--
 Don't miss the full getting started guide to set up your new package:
@@ -34,8 +34,13 @@ To install latest development version :
     pip install git+https://github.com/uhlmanngroup/napari-splinedist.git
 
 
+You can also find this plugin on the [napari hub].
+
+
 ## Tutorial
-The tutorial videos of different functionalities of `napari-splinedist` can be found [here].
+
+We provide tutorial videos of the different functionalities of `napari-splinedist` [here].
+
 [![](https://github.com/uhlmanngroup/napari-splinedist/blob/main/resources/napari-splinedist.png)](https://www.youtube.com/watch?v=1E5ucDkXfAo&list=PL1dfubro3sm3NBF8sQvlrIQ1EMHReVLSd)
 
 
@@ -63,6 +68,8 @@ If you encounter any problems, please [file an issue] along with a detailed desc
 [Apache Software License 2.0]: http://www.apache.org/licenses/LICENSE-2.0
 [Mozilla Public License 2.0]: https://www.mozilla.org/media/MPL/2.0/index.txt
 [cookiecutter-napari-plugin]: https://github.com/napari/cookiecutter-napari-plugin
+[napari hub]: https://www.napari-hub.org/plugins/napari-splinedist
+[splineit]: https://github.com/uhlmanngroup/napari-splineit
 
 [file an issue]: https://github.com/uhlmanngroup/napari-splinedist/issues
 
