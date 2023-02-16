@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/uhlmanngroup/napari-splinedist/branch/main/graph/badge.svg)](https://codecov.io/gh/uhlmanngroup/napari-splinedist)
 [![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-splinedist)](https://napari-hub.org/plugins/napari-splinedist)
 
-A napari SplineDist plugin
+A napari SplineDist plugin.
 
 ----------------------------------
 
